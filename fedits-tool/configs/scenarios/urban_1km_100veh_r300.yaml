@@ -1,0 +1,11 @@
+inherit: ../base.yaml
+
+sim:
+  num_vehicles: 100
+
+rsu:
+  radius_m: 300
+
+fl:
+  clients_per_round: 10
+  round_deadline_s: 25

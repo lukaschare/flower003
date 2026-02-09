@@ -1,0 +1,22 @@
+sim:
+  map_size_m: 1000
+  num_vehicles: 100
+
+rsu:
+  x_m: 500
+  y_m: 500
+  radius_m: 300
+
+fl:
+  rounds: 10
+  clients_per_round: 10
+  round_deadline_s: 25
+  model_down_bytes: 2000000
+  model_up_bytes: 2000000
+
+carbon:
+  ci_g_per_kwh: 200
+
+radio_power:
+  p_rx_w: 1.0
+  p_tx_w: 1.5

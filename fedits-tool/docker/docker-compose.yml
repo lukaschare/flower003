@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server   # 复用镜像
+    container_name: orchestrator
+    command: ["python", "-u", "orchestrator/orch_service.py"]
+    ports:
+      - "7070:7070"
+    environment:
+      OUT_DIR: outputs
+
+      # Veins side
+      VEINS_MODE: rpc           # mock | rpc
+      VEINS_HOST: 172.17.0.1    # Linux host gateway (Veins runs on host)
+      VEINS_PORT: 9999
+
+      # scenario params (must match your Veins/SUMO)
+      MAP_SIZE_M: 1000
+      NUM_VEH: 100
+      RSU_X_M: 500
+      RSU_Y_M: 500
+      RSU_R_M: 300
+
+      # FL params
+      ROUNDS: 10
+      M: 10
+      DEADLINE_S: 25
+      MODEL_DOWN_BYTES: 2000000
+      MODEL_UP_BYTES: 2000000
+
+      # carbon/radio
+      CI_G_PER_KWH: 200
+      P_RX_W: 1.0
+      P_TX_W: 1.5
+
+  fl_server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: fl_server
+    depends_on: [orchestrator]
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_ADDR: 0.0.0.0:8080
+      ROUNDS: 10
+      ORCH_URL: http://orchestrator:7070
+
+  fl_client:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.client
+    depends_on: [fl_server]
+    environment:
+      SERVER_ADDR: fl_server:8080
+      P_COMP_W: 18
+      CI_G_PER_KWH: 200
+      SLEEP_SCALE: 0.10
