@@ -20,11 +20,6 @@
 // Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 //
 
-import org.car2x.veins.nodes.RSU;
-import org.car2x.veins.nodes.Scenario;
-
-
-import fedits.ControlServer;
 
 // network RSUExampleScenario extends Scenario
 //{
@@ -35,11 +30,20 @@ import fedits.ControlServer;
 // }
 
 
-// ... 原有 network RSUExampleScenario
-network RSUExampleScenario
+
+package org.car2x.veins.examples.rsu;
+
+import org.car2x.veins.nodes.RSU;
+import org.car2x.veins.nodes.Scenario;
+
+import fedits.ControlServer;
+
+network RSUExampleScenario extends Scenario
 {
     submodules:
-        // 原来的 manager/rsu/...
+        rsu[1]: RSU {
+            @display("p=150,140;i=veins/sign/yellowdiamond;is=vs");
+        }
         control: ControlServer {
             @display("p=80,80");
         }

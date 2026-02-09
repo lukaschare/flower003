@@ -15,7 +15,7 @@ services:
       # Veins side
       VEINS_MODE: rpc           # mock | rpc
       VEINS_HOST: 172.17.0.1    # Linux host gateway (Veins runs on host)
-      VEINS_PORT: 9999
+      VEINS_PORT: 10001
 
       # scenario params (must match your Veins/SUMO)
       MAP_SIZE_M: 1000

@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cmath>
 #include <cstring>
+#include "nlohmann/json.hpp"
 
 using namespace omnetpp;
 
@@ -98,36 +99,8 @@ void ControlServer::handleMessage(cMessage* msg) {
 
         tickOnce_();
 
-        // --------- strict lockstep policy ---------
-        // 1) Downlink: EARLY STOP as soon as all sessions are finished (ok or failed).
-        //    We do NOT fast-forward to the round deadline here, so that training can start "immediately"
-        //    in the control-plane after the DL barrier is released.
-        if (pending_cmd_ == "simulate_downlink" && allFinished_()) {
-            json resp = buildXferResp_();
-            sendJsonAndClose_(resp);
-
-            sessions_.clear();
-            pending_cmd_.clear();
-            pending_req_.clear();
-
-            mode_ = Mode::WAIT_CMD;
-            scheduleAt(simTime(), wait_msg_);
-            return;
-        }
-
-        // 2) Uplink: ALWAYS advance to the round deadline (round end), even if everyone finished early.
-        //    This keeps Veins/SUMO sim-time aligned with the orchestrator's virtual time.
+        // 必须推进到 deadline（round end），然后回到 barrier
         if (simTime().dbl() + 1e-9 >= deadline_) {
-            // Mark any unfinished sessions as deadline-failed (including sessions that never reached start_time).
-            for (auto& s : sessions_) {
-                if (!s.finished) {
-                    s.finished = true;
-                    s.res.ok = false;
-                    s.res.reason = "deadline";
-                    s.res.t_done = -1.0;
-                }
-            }
-
             json resp = buildXferResp_();
             sendJsonAndClose_(resp);
 
@@ -140,10 +113,7 @@ void ControlServer::handleMessage(cMessage* msg) {
             return;
         }
 
-        // Next tick: hit deadline EXACTLY (avoid drifting beyond it).
-        simtime_t next = simTime() + SimTime(step_s_);
-        if (next.dbl() > deadline_) next = SimTime(deadline_);
-        scheduleAt(next, tick_msg_);
+        scheduleAt(simTime() + SimTime(step_s_), tick_msg_);
         return;
     }
 }
@@ -210,23 +180,25 @@ std::string ControlServer::recvLineBlocking_() {
 }
 
 void ControlServer::sendJsonAndClose_(const json& j) {
+    if (conn_fd_ < 0) return;
     std::string out = j.dump();
     out.push_back('\n');
-    if (conn_fd_ >= 0) {
-        ::send(conn_fd_, out.data(), out.size(), 0);
-    }
+    ::send(conn_fd_, out.data(), out.size(), 0);
     closeConn_();
 }
 
 // ---------------- traci helpers ----------------
 
 veins::TraCIScenarioManager* ControlServer::traciMgr_() const {
-    return veins::TraCIScenarioManagerAccess().getIfExists();
+    return veins::TraCIScenarioManagerAccess().get();
 }
 
 veins::TraCIMobility* ControlServer::mobilityOf_(cModule* host) const {
     if (!host) return nullptr;
-    return dynamic_cast<veins::TraCIMobility*>(host->getSubmodule("mobility"));
+    cModule* m = host->getSubmodule("veinsmobility");
+    if (!m) m = host->getSubmodule("mobility");
+    if (!m) return nullptr;
+    return dynamic_cast<veins::TraCIMobility*>(m);
 }
 
 // ---------------- link helpers ----------------
@@ -234,7 +206,7 @@ veins::TraCIMobility* ControlServer::mobilityOf_(cModule* host) const {
 double ControlServer::distToRsu_(const veins::Coord& p) const {
     double dx = p.x - rsu_x_m_;
     double dy = p.y - rsu_y_m_;
-    return std::sqrt(dx * dx + dy * dy);
+    return std::sqrt(dx*dx + dy*dy);
 }
 
 bool ControlServer::inRange_(const veins::Coord& p) const {
@@ -242,50 +214,43 @@ bool ControlServer::inRange_(const veins::Coord& p) const {
 }
 
 double ControlServer::goodputMbps_(const veins::Coord& p) const {
-    // simple distance-based attenuation
-    double d = std::max(1.0, distToRsu_(p));
-    double norm = d / std::max(1.0, rsu_r_m_);
-    double g = max_goodput_mbps_ / std::pow(1.0 + norm, alpha_);
+    double d = distToRsu_(p);
+    if (d >= rsu_r_m_) return 0.0;
+    double x = d / rsu_r_m_;
+    double g = max_goodput_mbps_ * (1.0 - std::pow(x, alpha_));
     if (g < min_goodput_mbps_) g = min_goodput_mbps_;
-    if (g > max_goodput_mbps_) g = max_goodput_mbps_;
     return g;
 }
 
 double ControlServer::rttMs_(const veins::Coord& p) const {
     double d = distToRsu_(p);
-    double extra = 0.02 * d; // 0.02 ms per meter (toy)
-    return base_rtt_ms_ + extra;
+    return base_rtt_ms_ + (d / 3e8) * 2.0 * 1000.0;
 }
 
 // ---------------- rpc handlers ----------------
 
 json ControlServer::handleGetState_(const json& req) {
-    auto* mgr = traciMgr_();
-    if (!mgr) {
-        return {{"ok", false}, {"error", "traci_manager_missing"}};
-    }
-    const auto& hosts = mgr->getManagedHosts();
+    (void)req;
 
+    auto* mgr = traciMgr_();
     json vehicles = json::object();
+
+    const auto& hosts = mgr->getManagedHosts();  // sumoId -> cModule*
     for (const auto& kv : hosts) {
-        const std::string& vid = kv.first;
+        const std::string& sumoId = kv.first;
         cModule* host = kv.second;
         auto* mob = mobilityOf_(host);
         if (!mob) continue;
+
         veins::Coord pos = mob->getPositionAt(simTime());
-        vehicles[vid] = {
+        vehicles[sumoId] = {
             {"x_m", pos.x},
             {"y_m", pos.y},
-            {"in_range", inRange_(pos)},
+            {"in_range", inRange_(pos)}
         };
     }
 
-    return {
-        {"ok", true},
-        {"cmd", "get_state"},
-        {"t_sim", simTime().dbl()},
-        {"vehicles", vehicles},
-    };
+    return {{"ok", true}, {"t_sim", simTime().dbl()}, {"vehicles", vehicles}};
 }
 
 void ControlServer::startDownlink_(const json& req) {
@@ -329,14 +294,15 @@ void ControlServer::startUplink_(const json& req) {
     }
 }
 
-// tick loop (strict, non-predictive, mobility-consistent)
-void ControlServer::tickOnce_() {
-    const double now = simTime().dbl();
-    const double eps = 1e-9;
+// ---------------- tick loop ----------------
 
-    // Effective step within [now, deadline_]
-    double dt = step_s_;
-    if (now + dt > deadline_) dt = std::max(0.0, deadline_ - now);
+bool ControlServer::allFinished_() const {
+    for (const auto& s : sessions_) if (!s.finished) return false;
+    return true;
+}
+
+void ControlServer::tickOnce_() {
+    double now = simTime().dbl();
 
     auto* mgr = traciMgr_();
     const auto& hosts = mgr->getManagedHosts();
@@ -344,14 +310,12 @@ void ControlServer::tickOnce_() {
     for (auto& s : sessions_) {
         if (s.finished) continue;
 
-        // Per-vehicle start time (uplink): not active yet
-        if (now + eps < s.start_time) {
-            continue;
+        if (now + 1e-9 < s.start_time) {
+            continue; // per-veh start time not reached yet
         }
         s.started = true;
 
-        // No time left to transmit
-        if (now + eps >= deadline_ || dt <= 0.0) {
+        if (now > deadline_ + 1e-9) {
             s.finished = true;
             s.res.ok = false;
             s.res.reason = "deadline";
@@ -374,7 +338,6 @@ void ControlServer::tickOnce_() {
             continue;
         }
 
-        // Use current position at simTime() for this step
         veins::Coord pos = mob->getPositionAt(simTime());
         if (!inRange_(pos)) {
             s.finished = true;
@@ -383,37 +346,30 @@ void ControlServer::tickOnce_() {
             continue;
         }
 
-        const double g_mbps = goodputMbps_(pos);
-        const double rtt_ms = rttMs_(pos);
+        double g_mbps = goodputMbps_(pos);
+        double rtt_ms = rttMs_(pos);
         s.res.goodput_mbps = g_mbps;
         s.res.rtt_ms = rtt_ms;
 
-        const double rate_Bps = std::max(1.0, (g_mbps * 1e6) / 8.0);
-        const double bytes_can_send = rate_Bps * dt;
+        double rate_Bps = (g_mbps * 1e6) / 8.0;
+        long long deliver = (long long)std::floor(rate_Bps * step_s_);
+        if (deliver <= 0) deliver = 1;
 
-        if (bytes_can_send + eps >= (double)s.bytes_left) {
-            // Finish within this step (<= deadline_)
-            const double dt_need = ((double)s.bytes_left) / rate_Bps;
-            const double t_done = now + dt_need;
+        s.bytes_left -= deliver;
 
-            s.bytes_left = 0;
+        if (s.bytes_left <= 0) {
+            // refine completion time within this step
+            double delivered_to_finish = (double)(deliver + s.bytes_left);
+            double step_bytes = std::max(1.0, rate_Bps * step_s_);
+            double frac = delivered_to_finish / step_bytes;
+            double t_done = now + frac * step_s_;
+
             s.finished = true;
             s.res.ok = true;
             s.res.t_done = t_done;
             s.res.reason.clear();
-        } else {
-            // Partial progress
-            long long deliver = (long long)std::floor(bytes_can_send);
-            if (deliver <= 0) deliver = 1;
-            s.bytes_left -= deliver;
-            if (s.bytes_left < 0) s.bytes_left = 0;
         }
     }
-}
-
-bool ControlServer::allFinished_() const {
-    for (const auto& s : sessions_) if (!s.finished) return false;
-    return true;
 }
 
 json ControlServer::buildXferResp_() const {

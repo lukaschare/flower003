@@ -2,39 +2,25 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import json
-import os
-import csv
-import random
+import json, os, csv, random, re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Optional, Any
 
-from orchestrator.veins_client import (
-    MockVeinsClient,
-    RPCVeinsClient,
-    VeinsState,
-    DLResult,
-    ULResult,
-    BaseVeinsClient,
-)
+from orchestrator.veins_client import MockVeinsClient, RPCVeinsClient, VeinsState, DLResult, ULResult, BaseVeinsClient
 
 
 def run_id_now() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-
 def ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
-
 
 def joule_to_kwh(j: float) -> float:
     return j / 3_600_000.0
 
-
 def comm_energy_j(p_rx_w: float, p_tx_w: float, t_down_s: float, t_up_s: float) -> float:
     return p_rx_w * max(t_down_s, 0.0) + p_tx_w * max(t_up_s, 0.0)
-
 
 def comm_carbon_g(e_comm_j: float, ci_g_per_kwh: float) -> float:
     return joule_to_kwh(e_comm_j) * ci_g_per_kwh
@@ -83,7 +69,7 @@ class OrchestratorConfig:
     # misc
     seed: int = 42
     out_dir: str = "outputs"
-    veins_mode: str = "mock"  # mock | rpc
+    veins_mode: str = "mock"   # mock | rpc
     veins_host: str = "127.0.0.1"
     veins_port: int = 9999
 
@@ -91,16 +77,15 @@ class OrchestratorConfig:
 class OrchestratorCore:
     """
     Strict control-plane core:
-    - Veins is the judge for reachability + downlink/uplink timing + failure reason.
-    - Flower server is data plane; Orchestrator does NOT aggregate weights.
-    - FIXED: We do NOT assume veh_id -> client_id mapping. We bind vehicles to actual cp.cid
-      provided by Flower server (available_client_ids) and keep mapping stable when possible.
+    - Talks to Veins (mock or rpc) for reachability + downlink/uplink timing + success reason.
+    - Talks to Flower server via HTTP service (handled in orch_service.py).
+    - Does NOT aggregate model weights (server does), but decides commit/drop and logs.
     """
 
     def __init__(self, cfg: OrchestratorConfig) -> None:
         self.cfg = cfg
         self.run_id = run_id_now()
-        self.t_sim = 0.0  # virtual sim time (round barrier time)
+        self.t_sim = 0.0  # virtual sim time
 
         # output
         self.run_dir = os.path.join(cfg.out_dir, "runs", self.run_id)
@@ -108,25 +93,25 @@ class OrchestratorCore:
         with open(os.path.join(self.run_dir, "config_snapshot.json"), "w", encoding="utf-8") as f:
             json.dump({"run_id": self.run_id, "cfg": cfg.__dict__}, f, indent=2)
 
-        # csv schema
+        # csv schema (match your existing fields)
         self.clients_fields = [
-            "run_id", "round", "client_id", "veh_id",
-            "selected", "committed", "drop_reason",
-            "t_round_start", "t_deadline",
-            "t_dl_done", "t_ul_start", "t_ul_done",
-            "t_down", "t_train", "t_up",
-            "dl_ok", "ul_ok",
-            "dl_goodput_mbps", "ul_goodput_mbps",
-            "dl_rtt_ms", "ul_rtt_ms",
-            "e_comp_j", "co2_comp_g",
-            "e_comm_j", "co2_comm_g", "co2_total_g",
+            "run_id","round","client_id","veh_id",
+            "selected","committed","drop_reason",
+            "t_round_start","t_deadline",
+            "t_dl_done","t_ul_start","t_ul_done",
+            "t_down","t_train","t_up",
+            "dl_ok","ul_ok",
+            "dl_goodput_mbps","ul_goodput_mbps",
+            "dl_rtt_ms","ul_rtt_ms",
+            "e_comp_j","co2_comp_g",
+            "e_comm_j","co2_comm_g","co2_total_g",
         ]
         self.server_fields = [
-            "run_id", "round",
-            "m_selected", "m_committed", "dropout_rate",
+            "run_id","round",
+            "m_selected","m_committed","dropout_rate",
             "global_model_norm",
-            "co2_committed_g", "co2_dropped_g", "co2_total_g",
-            "t_round_start", "t_deadline",
+            "co2_committed_g","co2_dropped_g","co2_total_g",
+            "t_round_start","t_deadline",
         ]
         self.clients_csv = CsvAppender(os.path.join(self.run_dir, "clients_round.csv"), self.clients_fields)
         self.server_csv = CsvAppender(os.path.join(self.run_dir, "server_round.csv"), self.server_fields)
@@ -144,128 +129,46 @@ class OrchestratorCore:
                 seed=cfg.seed,
             )
 
-        # per-round context
+        # per-round context (control-plane memory)
         self.ctx: Dict[int, Dict[str, Any]] = {}
-
-        # IMPORTANT: dynamic binding between SUMO vehicle id and Flower cp.cid
-        self.veh_to_cid: Dict[str, str] = {}
-        self.cid_to_veh: Dict[str, str] = {}
 
         print(f"[orch-core] run_id={self.run_id} out={self.run_dir} veins_mode={cfg.veins_mode}")
 
-    # -----------------------------
-    # Binding helpers (veh <-> cp.cid)
-    # -----------------------------
+    # ---------- binding: veh_id -> client_id ----------
+    def bind_veh_to_client(self, veh_id: str) -> str:
+        # default: veh17 -> client17 (2-digit) ; if >=100 use 3-digit
+        m = re.search(r"(\d+)", veh_id)
+        if m:
+            n = int(m.group(1))
+        else:
+            n = abs(hash(veh_id)) % max(self.cfg.num_vehicles, 1)
+        if n <= 99:
+            return f"client{n:02d}"
+        return f"client{n:03d}"
 
-    def _refresh_bindings(self, available_client_ids: List[str]) -> None:
-        """Drop bindings whose cid is no longer connected."""
-        alive = set(available_client_ids)
-        # remove dead cids
-        dead_cids = [cid for cid in self.cid_to_veh.keys() if cid not in alive]
-        for cid in dead_cids:
-            veh = self.cid_to_veh.pop(cid, None)
-            if veh is not None:
-                # only delete if still mapped to same cid
-                if self.veh_to_cid.get(veh) == cid:
-                    self.veh_to_cid.pop(veh, None)
-
-    def _alloc_cid_for_vehicle(self, veh_id: str, free_cids: List[str], used_cids: set) -> str | None:
-        """
-        Ensure veh_id has a cid bound.
-        Prefer existing binding if still available; else assign a free cid.
-        """
-        # keep existing if possible
-        cid0 = self.veh_to_cid.get(veh_id)
-        if cid0 and (cid0 in free_cids or cid0 in used_cids):
-            # if already used this round, cannot reuse
-            if cid0 in used_cids:
-                return None
-            # otherwise accept it (and remove from free list if present)
-            if cid0 in free_cids:
-                free_cids.remove(cid0)
-            used_cids.add(cid0)
-            self.veh_to_cid[veh_id] = cid0
-            self.cid_to_veh[cid0] = veh_id
-            return cid0
-
-        # allocate new
-        for i, cid in enumerate(list(free_cids)):
-            if cid in used_cids:
-                continue
-            # clear old mapping if any
-            old_veh = self.cid_to_veh.get(cid)
-            if old_veh is not None and self.veh_to_cid.get(old_veh) == cid:
-                self.veh_to_cid.pop(old_veh, None)
-
-            # assign
-            free_cids.pop(i)
-            used_cids.add(cid)
-            self.veh_to_cid[veh_id] = cid
-            self.cid_to_veh[cid] = veh_id
-            return cid
-
-        return None
-
-    # -----------------------------
-    # Round APIs called by server via HTTP
-    # -----------------------------
-
+    # ---------- round APIs used by Flower Strategy ----------
     def configure_fit(self, server_round: int, available_client_ids: List[str]) -> Dict[str, Any]:
-        """
-        Decide which cp.cid should train for which veh_id this round.
-        FIXED: Use available_client_ids directly (cp.cid), NOT synthetic "clientXX".
-        """
         t_round_start = self.t_sim
         t_deadline = t_round_start + self.cfg.deadline_s
 
-        # refresh binding with currently alive cids
-        self._refresh_bindings(available_client_ids)
-
-        # query Veins for in-range candidates
         state: VeinsState = self.veins.get_state(t=t_round_start)
         candidates_veh = [vid for vid, v in state.vehicles.items() if v.in_range]
 
-        # If no candidates or no clients, nothing to do
-        if not candidates_veh or not available_client_ids:
-            self.ctx[server_round] = {
-                "t_round_start": t_round_start,
-                "t_deadline": t_deadline,
-                "selected_pairs": [],
-                "dl": {},
-                "pending_server_row": None,
-            }
-            return {
-                "ok": True,
-                "run_id": self.run_id,
-                "t_round_start": t_round_start,
-                "t_deadline": t_deadline,
-                "selected": [],
-                "train_assignments": [],
-            }
+        available = set(available_client_ids)
+        candidate_pairs: List[Tuple[str,str]] = []  # (cid, veh)
+        for veh in candidates_veh:
+            cid = self.bind_veh_to_client(veh)
+            if cid in available:
+                candidate_pairs.append((cid, veh))
 
-        # deterministic selection of vehicles (but randomized w/ seed+round)
-        rnd = random.Random(self.cfg.seed + int(server_round))
-        candidates_veh = list(candidates_veh)
-        rnd.shuffle(candidates_veh)
+        rnd = random.Random(self.cfg.seed + server_round)
+        if len(candidate_pairs) <= self.cfg.clients_per_round:
+            selected_pairs = candidate_pairs[:]
+        else:
+            selected_pairs = rnd.sample(candidate_pairs, self.cfg.clients_per_round)
 
-        # cap by both: desired m, number of in-range vehicles, number of available clients
-        m_cap = min(self.cfg.clients_per_round, len(candidates_veh), len(available_client_ids))
-        selected_veh = candidates_veh[:m_cap]
+        veh_ids = [veh for cid, veh in selected_pairs]
 
-        # stable binding: try keep existing veh->cid mapping
-        free_cids = sorted(list(available_client_ids))
-        used_cids: set = set()
-
-        selected_pairs: List[Tuple[str, str]] = []
-        for veh in selected_veh:
-            cid = self._alloc_cid_for_vehicle(veh, free_cids, used_cids)
-            if cid is None:
-                continue
-            selected_pairs.append((cid, veh))
-
-        veh_ids = [veh for _, veh in selected_pairs]
-
-        # simulate downlink in Veins (DL early-stop should be implemented in ControlServer)
         dl = self.veins.simulate_downlink(
             t_now=t_round_start,
             veh_ids=veh_ids,
@@ -287,14 +190,14 @@ class OrchestratorCore:
                         "t_round_start": t_round_start,
                         "t_deadline": t_deadline,
                         "server_round": server_round,
-                    },
+                    }
                 })
 
-        # store ctx for decide_commit/finalize and logging
+        # store ctx for later commit decision & logging
         self.ctx[server_round] = {
             "t_round_start": t_round_start,
             "t_deadline": t_deadline,
-            "selected_pairs": selected_pairs,  # includes dl_fail pairs
+            "selected_pairs": selected_pairs,   # includes dl_fail
             "dl": dl,
             "pending_server_row": None,
         }
@@ -305,42 +208,31 @@ class OrchestratorCore:
             "t_round_start": t_round_start,
             "t_deadline": t_deadline,
             "selected": [{"client_id": cid, "veh_id": veh} for cid, veh in selected_pairs],
-            "train_assignments": assignments,  # only dl_ok
+            "train_assignments": assignments,   # only dl_ok
         }
 
     def decide_commit(self, server_round: int, fit_results: List[dict]) -> Dict[str, Any]:
-        """
-        Using client train results (t_train_s, e_comp_j, co2_comp_g) and DL timings,
-        compute UL start_times per veh and ask Veins to simulate uplink.
-        Then commit/drop based on UL success and deadline.
-        """
         if server_round not in self.ctx:
             return {"ok": False, "error": f"no ctx for round {server_round}"}
-
         ctx = self.ctx[server_round]
         t_round_start = float(ctx["t_round_start"])
         t_deadline = float(ctx["t_deadline"])
-        selected_pairs: List[Tuple[str, str]] = ctx["selected_pairs"]
+        selected_pairs: List[Tuple[str,str]] = ctx["selected_pairs"]
         dl: Dict[str, DLResult] = ctx["dl"]
 
-        # map metrics by client_id and also by veh_id as fallback (robust)
+        # map metrics by client_id
         m_by_cid: Dict[str, dict] = {}
-        m_by_veh: Dict[str, dict] = {}
         for r in fit_results:
             cid = str(r.get("client_id", ""))
-            veh = str(r.get("veh_id", ""))
-            if cid:
-                m_by_cid[cid] = r
-            if veh:
-                m_by_veh[veh] = r
+            m_by_cid[cid] = r
 
-        # uplink start times are per-veh
+        # uplink start times are per-veh (veh_id)
         start_times: Dict[str, float] = {}
         ul_veh_ids: List[str] = []
 
         for cid, veh in selected_pairs:
             dlr = dl.get(veh, DLResult.fail("dl_no_result"))
-            mr = m_by_cid.get(cid) or m_by_veh.get(veh)
+            mr = m_by_cid.get(cid)
             if dlr.ok and mr:
                 t_train = float(mr.get("t_train_s", 0.0))
                 start = float(dlr.t_done) + t_train
@@ -362,7 +254,7 @@ class OrchestratorCore:
 
         for cid, veh in selected_pairs:
             dlr = dl.get(veh, DLResult.fail("dl_no_result"))
-            mr = m_by_cid.get(cid) or m_by_veh.get(veh)
+            mr = m_by_cid.get(cid)
             ulr = ul.get(veh, ULResult.fail("not_scheduled"))
 
             selected = 1
@@ -441,14 +333,14 @@ class OrchestratorCore:
                 "co2_total_g": co2_total,
             })
 
-        # write per-client rows
+        # write per-client rows now (strictly control-plane output)
         self.clients_csv.append_rows(client_rows)
 
         m_selected = len(selected_pairs)
         m_committed = len(committed_cids)
         dropout_rate = 0.0 if m_selected == 0 else (m_selected - m_committed) / float(m_selected)
 
-        # store pending server row (needs global_model_norm at finalize)
+        # store pending server row (needs global_model_norm from server finalize)
         ctx["pending_server_row"] = {
             "run_id": self.run_id,
             "round": server_round,
