@@ -135,7 +135,9 @@ def main() -> None:
 
     while True:
         try:
-            fl.client.start_numpy_client(server_address=server_addr, client=client)
+            # fl.client.start_numpy_client(server_address=server_addr, client=client)
+            # 使用 .to_client() 转换，并调用 start_client
+            fl.client.start_client(server_address=server_addr, client=client.to_client())
             break
         except Exception as e:
             print(f"[{cid}] connect failed ({e}), retry in 2s...")

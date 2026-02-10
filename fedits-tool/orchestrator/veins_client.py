@@ -16,7 +16,7 @@ Request:
 Response:
   {"ok":true, ... payload ...}
 """
-
+#veins_client.py
 from __future__ import annotations
 
 import json
@@ -257,6 +257,11 @@ class RPCVeinsClient(BaseVeinsClient):
         self.timeout_s = float(timeout_s)
 
     def _call(self, payload: dict) -> dict:
+        # === [新增] 打印发送日志 ===
+        print(f"--- [RPC DEBUG] Connecting to {self.host}:{self.port} ...")
+        print(f"--- [RPC DEBUG] Sending: {json.dumps(payload)}")
+        # ==========================
+
         msg = (json.dumps(payload) + "\n").encode("utf-8")
         with socket.create_connection((self.host, self.port), timeout=self.timeout_s) as s:
             s.sendall(msg)
@@ -268,6 +273,9 @@ class RPCVeinsClient(BaseVeinsClient):
                     break
                 data += chunk
         text = data.decode("utf-8").strip()
+        # === [新增] 打印接收日志 ===
+        print(f"--- [RPC DEBUG] Received raw: {text}")
+        # ==========================
         if not text:
             raise RuntimeError("Empty response from Veins ControlServer")
         return json.loads(text)

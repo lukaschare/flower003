@@ -3,6 +3,9 @@ package fedits;
 simple ControlServer
 {
     parameters:
+        // 强制指定 C++ 类名为 fedits::ControlServer
+        @class("fedits::ControlServer");
+        
         int port = default(9999);
 
         double rsuX = default(500);

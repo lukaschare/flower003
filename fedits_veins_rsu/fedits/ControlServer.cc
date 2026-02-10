@@ -1,4 +1,6 @@
-#include "fedits/ControlServer.h"
+// #include "fedits/ControlServer.h"
+
+#include "ControlServer.h"
 
 #include <arpa/inet.h>
 #include <cmath>
@@ -8,7 +10,8 @@ using namespace omnetpp;
 
 namespace fedits {
 
-Define_Module(ControlServer);
+
+// Define_Module(ControlServer);
 
 ControlServer::~ControlServer() {
     closeConn_();
@@ -220,8 +223,14 @@ void ControlServer::sendJsonAndClose_(const json& j) {
 
 // ---------------- traci helpers ----------------
 
+// veins::TraCIScenarioManager* ControlServer::traciMgr_() const {
+//     // return veins::TraCIScenarioManagerAccess().getIfExists();
+//     return veins::TraCIScenarioManagerAccess().get();
+// }
+
 veins::TraCIScenarioManager* ControlServer::traciMgr_() const {
-    return veins::TraCIScenarioManagerAccess().getIfExists();
+    // 使用 FindModule 全局查找，替代 Access 类
+    return veins::FindModule<veins::TraCIScenarioManager*>::findGlobalModule();
 }
 
 veins::TraCIMobility* ControlServer::mobilityOf_(cModule* host) const {
@@ -438,3 +447,10 @@ json ControlServer::buildXferResp_() const {
 }
 
 } // namespace fedits
+// 1. 注册为 "fedits::ControlServer" (标准写法)
+Define_Module(fedits::ControlServer);
+
+// 2. 注册为 "ControlServer" (为了兼容报错所寻找的名字)
+//    先引用该类，然后用简单名注册
+using fedits::ControlServer;
+Define_Module(ControlServer);

@@ -30,8 +30,9 @@
 // }
 
 
+// package org.car2x.veins.examples.fedits_veins_rsu;
 
-package org.car2x.veins.examples.rsu;
+// package org.car2x.veins.examples.rsu;
 
 import org.car2x.veins.nodes.RSU;
 import org.car2x.veins.nodes.Scenario;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+# orchestrator.py: Main Orchestrator script for FL simulation with Veins integration
 """
 Orchestrator: round state machine
 select → downlink(sim) → train(real/mock) → uplink(sim) → commit/drop → aggregate → log
@@ -21,7 +21,8 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict
+# from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
@@ -49,7 +50,12 @@ class RsuConfig:
 class SimConfig:
     map_size_m: float = 1000.0             # 1km x 1km
     num_vehicles: int = 100
-    rsu: RsuConfig = RsuConfig()
+
+    # 这一行是报错的原因：
+    # rsu: RsuConfig = RsuConfig() 
+    
+    # 改为下面这一行：
+    rsu: RsuConfig = field(default_factory=RsuConfig)
 
     rounds: int = 10
     clients_per_round: int = 10            # m

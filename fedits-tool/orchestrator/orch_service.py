@@ -1,6 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#orch_service.py: Orchestrator service exposing REST API for control-plane interactions with clients and Veins
+
 from __future__ import annotations
+
+import json, os
+import sys
+
+# ==========================================
+# 修复导入路径 (关键步骤)
+# ==========================================
+THIS_DIR = os.path.dirname(os.path.abspath(__file__)) # /app/orchestrator
+PARENT_DIR = os.path.dirname(THIS_DIR)                # /app
+if PARENT_DIR not in sys.path:
+    sys.path.insert(0, PARENT_DIR)
+# ==========================================
+
+
+
 
 import json, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

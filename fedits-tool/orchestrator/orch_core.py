@@ -1,3 +1,4 @@
+#orch_core.py: OrchestratorCore class implementing the control-plane logic for FL orchestration with Veins as the judge for communication and timing. It handles client selection, simulates downlink/uplink, and decides commit/drop based on results and deadlines. It also logs detailed per-client and per-round metrics to CSV files.
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -221,9 +222,25 @@ class OrchestratorCore:
         # refresh binding with currently alive cids
         self._refresh_bindings(available_client_ids)
 
+        # === [新增日志 1] ===
+        print(f"--- [DEBUG] Round {server_round} Start (t={t_round_start}) ---")
+        print(f"--- [DEBUG] Asking Veins for vehicles at t={t_round_start}...")
+
+
         # query Veins for in-range candidates
         state: VeinsState = self.veins.get_state(t=t_round_start)
         candidates_veh = [vid for vid, v in state.vehicles.items() if v.in_range]
+
+        # 【新增这行打印】
+        print(f"[Round {server_round}] Debug: Veins_in_range={len(candidates_veh)}, Flower_connected={len(available_client_ids)}")
+
+        # === [新增日志 2] ===
+        print(f"--- [DEBUG] Veins response: Total Vehicles={len(state.vehicles)}, In-Range (Radius={self.cfg.rsu_radius_m})={len(candidates_veh)}")
+        if len(state.vehicles) > 0:
+            # 打印第一辆车的坐标，看看是不是真的很远
+            first_veh = list(state.vehicles.values())[0]
+            print(f"--- [DEBUG] Sample Vehicle Pos: x={first_veh.x}, y={first_veh.y}")
+        
 
         # If no candidates or no clients, nothing to do
         if not candidates_veh or not available_client_ids:
@@ -470,13 +487,25 @@ class OrchestratorCore:
             return {"ok": False, "error": f"no ctx for round {server_round}"}
         ctx = self.ctx[server_round]
         row = ctx.get("pending_server_row")
-        if not row:
-            return {"ok": False, "error": f"no pending_server_row for round {server_round}"}
 
-        row["global_model_norm"] = float(global_model_norm)
-        self.server_csv.append_rows([row])
-
+        # ================= [修改代码 START] =================
+        # 如果没有 row (说明这轮没人被选中)，我们依然要推进时间，不能报错返回
+        if row:
+            row["global_model_norm"] = float(global_model_norm)
+            self.server_csv.append_rows([row])
+        # ================= [修改代码 END] =================
         # advance virtual time: end at deadline
-        self.t_sim = float(ctx["t_deadline"])
+        self.t_sim = float(ctx["t_deadline"])  # <--- 这行代码得以执行，时间就动了！
 
         return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
+
+        # if not row:
+        #     return {"ok": False, "error": f"no pending_server_row for round {server_round}"}
+
+        # row["global_model_norm"] = float(global_model_norm)
+        # self.server_csv.append_rows([row])
+
+        # # advance virtual time: end at deadline
+        # self.t_sim = float(ctx["t_deadline"])
+
+        # return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}

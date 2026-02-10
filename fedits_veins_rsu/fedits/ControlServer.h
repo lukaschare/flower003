@@ -11,7 +11,10 @@
 
 #include <nlohmann/json.hpp>
 
-#include "veins/modules/mobility/traci/TraCIScenarioManagerAccess.h"
+// #include "veins/modules/mobility/traci/TraCIScenarioManagerAccess.h"
+#include "veins/modules/mobility/traci/TraCIScenarioManager.h"
+#include "veins/base/utils/FindModule.h"
+
 #include "veins/modules/mobility/traci/TraCIMobility.h"
 #include "veins/base/utils/Coord.h"
 

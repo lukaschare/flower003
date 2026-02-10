@@ -5,6 +5,7 @@ import os
 import json
 import urllib.request
 from typing import Dict, List, Tuple, Optional, Any
+import time # 记得导入 time，虽然 wait_for 内部处理了，但有时候我们需要手动 sleep
 
 import numpy as np
 import flwr as fl
@@ -74,10 +75,21 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
       4) report global_model_norm back to Orchestrator finalize (server_round.csv, advance t_sim)
     """
 
-    def __init__(self, orch_url: str) -> None:
+    def __init__(
+        self, 
+        orch_url: str,
+        min_fit_clients: int = 1,
+        min_available_clients: int = 10,
+        wait_timeout: int = 60
+        ) -> None:
         super().__init__()
         self.orch = OrchestratorHttpClient(orch_url, timeout_s=90.0)
         self.init_nd = np.zeros((10,), dtype=np.float32)
+
+        # 保存这些参数
+        self.min_fit_clients = min_fit_clients
+        self.min_available_clients = min_available_clients
+        self.wait_timeout = wait_timeout  # 新增：保存等待超时时间
 
         # optional quick sanity
         try:
@@ -96,10 +108,39 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
         client_manager: ClientManager,
     ) -> List[Tuple[fl.server.client_proxy.ClientProxy, FitIns]]:
 
+        # 1. 等待客户端 (物理连接层)
+        # 确定这一轮我们要等多少人
+        # 第一轮通常需要更多人在线才能开始，或者你也可以设为一样
+        wait_num = self.min_available_clients if server_round == 1 else self.min_fit_clients
+        
+        print(f"[round {server_round}] Waiting for {wait_num} clients (timeout={self.wait_timeout}s)...")
+        
+        # === 关键修改：传入 timeout ===
+        success = client_manager.wait_for(
+            num_clients=wait_num, 
+            timeout=self.wait_timeout
+        )
+        
+        if not success:
+            # 超时了也没凑够人
+            print(f"[round {server_round}] Timeout! Only {len(client_manager.all())} clients connected. Skipping round.")
+            return [] # 返回空列表，Flower 会结束这一轮并记为失败/跳过
+
+        # 2. 获取当前在线列表
         # All currently connected clients
         all_clients = list(client_manager.all().values())
         available_ids = [cp.cid for cp in all_clients]
 
+        # === [新增日志 1] 打印物理连接总数 ===
+        print(f"[Round {server_round}] Step 1: Physical connected clients = {len(available_ids)}")
+
+        # ======================= [调试日志开始] =======================
+        print(f"\n=== [DEBUG Round {server_round}] Data Plane (Flower Server) Status ===")
+        print(f"1. Local Client Manager Total: {len(all_clients)}")
+        print(f"2. Local Physical IDs (Scope sent to Orch): {available_ids}")
+        # ============================================================
+
+        # 3. 请求 Orchestrator (逻辑筛选层)
         resp = self.orch.post("/v1/round/configure_fit", {
             "server_round": int(server_round),
             "available_client_ids": available_ids,
@@ -110,6 +151,32 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
 
         # Orchestrator returns only dl_ok assignments for training
         assignments = resp.get("train_assignments", [])
+
+        # ================= [新增代码 START] =================
+        # 如果 Orchestrator 没选到人（通常是因为 SUMO 时间还在 0，车还没来）
+        # 我们必须强制调用 finalize 来让时间往前走 (t_sim += 25s)
+        if not assignments:
+            print(f"[Round {server_round}] No clients selected (Orch empty). Forcing time advance...")
+            self.orch.post("/v1/round/finalize", {
+                "server_round": int(server_round),
+                "global_model_norm": 0.0, # 没训练，模型更新量为 0
+            })
+            return [] 
+        # ================= [新增代码 END] =================
+
+        # === [新增日志 2] 打印 Orchestrator 筛选结果 ===
+        print(f"[Round {server_round}] Step 2: Orchestrator selected = {len(assignments)} (Filtered out {len(available_ids) - len(assignments)})")
+
+        # ======================= [只加了这几行打印] =======================
+        print(f"--- [DEBUG Round {server_round}] Step 2: Orchestrator Selection ---")
+        print(f"Orchestrator Selected : {len(assignments)}")
+        # 打印一下 Orch 到底选了谁，看看和上面的 ID 对不对得上
+        selected_ids_debug = [a.get('client_id') for a in assignments]
+        print(f"Selected IDs          : {selected_ids_debug}")
+        print(f"----------------------------------------------------------\n")
+        # ================================================================
+
+        # 4. 下发任务
         by_cid = {cp.cid: cp for cp in all_clients}
 
         fit_instructions: List[Tuple[fl.server.client_proxy.ClientProxy, FitIns]] = []
@@ -121,6 +188,7 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
                 continue
             fit_instructions.append((cp, FitIns(parameters, cfg)))
 
+        # === [原有日志] 最终确认 ===
         print(f"[round {server_round}] dispatch_fit={len(fit_instructions)} (from assignments={len(assignments)})")
         return fit_instructions
 
@@ -192,13 +260,30 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
     def aggregate_evaluate(self, server_round: int, results, failures):
         return None, {}
 
+    # 添加这个缺失的方法以适配新版 Flower
+    def evaluate(self, server_round: int, parameters: Parameters) -> Optional[Tuple[float, Dict[str, Any]]]:
+        return None
 
 def main() -> None:
     SERVER_ADDR = env_str("SERVER_ADDR", "0.0.0.0:8080")
     ROUNDS = env_int("ROUNDS", 10)
     ORCH_URL = env_str("ORCH_URL", "http://orchestrator:7070")
 
-    strat = ProxyOrchestratedFedAvg(orch_url=ORCH_URL)
+    wait_timeout: int = 60  # <--- 新增：默认等待时间（秒）
+    min_fit_clients=1        # 每轮最少选择多少个客户端进行训练
+    min_evaluate_clients=1   # 每轮最少选择多少个客户端进行评估
+    min_available_clients=10  # [重要] 等待至少 10 个客户端连接后才开始第 1 轮
+
+    # strat = ProxyOrchestratedFedAvg(orch_url=ORCH_URL)
+
+    # [关键修复] 将变量传入 Strategy
+    # [修复4] 实例化时，把所有参数都传进去（包括 wait_timeout）
+    strat = ProxyOrchestratedFedAvg(
+        orch_url=ORCH_URL,
+        min_fit_clients=min_fit_clients,
+        min_available_clients=min_available_clients,
+        wait_timeout=wait_timeout  # <--- 记得把这个也传进去
+    )
 
     fl.server.start_server(
         server_address=SERVER_ADDR,

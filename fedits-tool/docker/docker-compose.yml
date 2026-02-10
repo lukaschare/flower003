@@ -6,11 +6,20 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server   # 复用镜像
     container_name: orchestrator
-    command: ["python", "-u", "orchestrator/orch_service.py"]
+    # command: ["python", "-u", "orchestrator/orch_service.py"]
+    # 使用模块方式启动，自动解决包路径问题
+    command: ["python", "-u", "-m", "orchestrator.orch_service"]
     ports:
       - "7070:7070"
+    
+    # ================= 必须新增这部分 =================
+    volumes:
+      # 意思是：把宿主机的 "../outputs" 目录 <---> 映射到容器里的 "/app/outputs"
+      - ../outputs:/app/outputs
+    # ================================================
     environment:
       OUT_DIR: outputs
+      PYTHONPATH: /app   # <--- 注意：这里要用冒号 : 并且后面有个空格
 
       # Veins side
       VEINS_MODE: rpc           # mock | rpc
@@ -18,11 +27,11 @@ services:
       VEINS_PORT: 10001
 
       # scenario params (must match your Veins/SUMO)
-      MAP_SIZE_M: 1000
+      MAP_SIZE_M: 4000
       NUM_VEH: 100
-      RSU_X_M: 500
-      RSU_Y_M: 500
-      RSU_R_M: 300
+      RSU_X_M: 2000
+      RSU_Y_M: 2000
+      RSU_R_M: 3000
 
       # FL params
       ROUNDS: 10
