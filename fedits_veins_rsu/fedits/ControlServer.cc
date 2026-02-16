@@ -233,10 +233,16 @@ veins::TraCIScenarioManager* ControlServer::traciMgr_() const {
     return veins::FindModule<veins::TraCIScenarioManager*>::findGlobalModule();
 }
 
-veins::TraCIMobility* ControlServer::mobilityOf_(cModule* host) const {
+// veins::TraCIMobility* ControlServer::mobilityOf_(cModule* host) const {
+//     if (!host) return nullptr;
+//     return dynamic_cast<veins::TraCIMobility*>(host->getSubmodule("mobility"));
+// }
+veins::TraCIMobility* ControlServer::mobilityOf_(omnetpp::cModule* host) const {
     if (!host) return nullptr;
-    return dynamic_cast<veins::TraCIMobility*>(host->getSubmodule("mobility"));
+    // 将 "mobility" 改为 "veinsmobility" 以适配 Veins 5.x
+    return dynamic_cast<veins::TraCIMobility*>(host->getSubmodule("veinsmobility"));
 }
+
 
 // ---------------- link helpers ----------------
 

@@ -154,6 +154,30 @@ class OrchestratorCore:
 
         print(f"[orch-core] run_id={self.run_id} out={self.run_dir} veins_mode={cfg.veins_mode}")
 
+
+
+    # def finalize_round(self, server_round: int, global_model_norm: float) -> Dict[str, Any]:
+    # ...
+    # # advance virtual time: end at deadline
+    # self.t_sim = float(ctx["t_deadline"])
+
+    # # NEW: keep Veins sim-time aligned even when no clients were selected
+    # if self.cfg.veins_mode == "rpc":
+    #     try:
+    #         # use existing API to force Veins advance to deadline (empty UL)
+    #         self.veins.simulate_uplink(
+    #             start_times={},
+    #             veh_ids=[],
+    #             size_bytes=0,
+    #             deadline=self.t_sim,
+    #         )
+    #     except Exception as e:
+    #         print(f"[WARN] Veins advance (idle) failed: {e}")
+
+    # return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
+
+
+
     # -----------------------------
     # Binding helpers (veh <-> cp.cid)
     # -----------------------------
@@ -239,7 +263,8 @@ class OrchestratorCore:
         if len(state.vehicles) > 0:
             # 打印第一辆车的坐标，看看是不是真的很远
             first_veh = list(state.vehicles.values())[0]
-            print(f"--- [DEBUG] Sample Vehicle Pos: x={first_veh.x}, y={first_veh.y}")
+            # print(f"--- [DEBUG] Sample Vehicle Pos: x={first_veh.x}, y={first_veh.y}")
+            print(f"--- [DEBUG] Sample Vehicle Pos: x={first_veh.x_m}, y={first_veh.y_m}")
         
 
         # If no candidates or no clients, nothing to do
@@ -482,30 +507,61 @@ class OrchestratorCore:
 
         return {"ok": True, "committed_client_ids": committed_cids}
 
+    # def finalize_round(self, server_round: int, global_model_norm: float) -> Dict[str, Any]:
+    #     if server_round not in self.ctx:
+    #         return {"ok": False, "error": f"no ctx for round {server_round}"}
+    #     ctx = self.ctx[server_round]
+    #     row = ctx.get("pending_server_row")
+
+    #     # ================= [修改代码 START] =================
+    #     # 如果没有 row (说明这轮没人被选中)，我们依然要推进时间，不能报错返回
+    #     if row:
+    #         row["global_model_norm"] = float(global_model_norm)
+    #         self.server_csv.append_rows([row])
+    #     # ================= [修改代码 END] =================
+    #     # advance virtual time: end at deadline
+    #     self.t_sim = float(ctx["t_deadline"])  # <--- 这行代码得以执行，时间就动了！
+
+    #     return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
+
+    #     # if not row:
+    #     #     return {"ok": False, "error": f"no pending_server_row for round {server_round}"}
+
+    #     # row["global_model_norm"] = float(global_model_norm)
+    #     # self.server_csv.append_rows([row])
+
+    #     # # advance virtual time: end at deadline
+    #     # self.t_sim = float(ctx["t_deadline"])
+
+    #     # return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
+
     def finalize_round(self, server_round: int, global_model_norm: float) -> Dict[str, Any]:
         if server_round not in self.ctx:
             return {"ok": False, "error": f"no ctx for round {server_round}"}
+
         ctx = self.ctx[server_round]
         row = ctx.get("pending_server_row")
 
-        # ================= [修改代码 START] =================
-        # 如果没有 row (说明这轮没人被选中)，我们依然要推进时间，不能报错返回
+        # 1) 这轮有 server_row 才写日志；没人选中就跳过（但仍要推进时间）
         if row:
             row["global_model_norm"] = float(global_model_norm)
             self.server_csv.append_rows([row])
-        # ================= [修改代码 END] =================
-        # advance virtual time: end at deadline
-        self.t_sim = float(ctx["t_deadline"])  # <--- 这行代码得以执行，时间就动了！
+
+        # 2) 推进 orchestrator 的虚拟时间到 deadline
+        self.t_sim = float(ctx["t_deadline"])
+
+        # 3) 关键：即使没人选中，也要把 Veins 推进到 deadline（否则 Veins 永远停在 t=0）
+        if getattr(self.cfg, "veins_mode", "") == "rpc":
+            try:
+                # 空 uplink：让 ControlServer 进入 RUN_XFER 并 tick 到 deadline
+                self.veins.simulate_uplink(
+                    start_times={},
+                    veh_ids=[],
+                    size_bytes=0,
+                    deadline=self.t_sim,
+                )
+            except Exception as e:
+                print(f"[WARN] Veins idle-advance failed in finalize_round: {e}")
 
         return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
 
-        # if not row:
-        #     return {"ok": False, "error": f"no pending_server_row for round {server_round}"}
-
-        # row["global_model_norm"] = float(global_model_norm)
-        # self.server_csv.append_rows([row])
-
-        # # advance virtual time: end at deadline
-        # self.t_sim = float(ctx["t_deadline"])
-
-        # return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
