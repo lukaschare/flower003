@@ -64,6 +64,9 @@ def load_cfg_from_env() -> OrchestratorConfig:
         partition_scheme=env_str("PARTITION_SCHEME", "iid"),
         partition_path=env_str("PARTITION_PATH", ""),
 
+        data_dir=env_str("DATA_DIR", "/app/data"),
+        dirichlet_alpha=env_float("DIRICHLET_ALPHA", 0.5)
+
     )
 
 

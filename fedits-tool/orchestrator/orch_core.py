@@ -19,7 +19,13 @@ from orchestrator.veins_client import (
     ULResult,
     BaseVeinsClient,
 )
-from orchestrator.dataset_partitions import ensure_iid_partitions, default_partition_path
+
+# NEW: dataset partitioning
+from orchestrator.dataset_partitions import (
+    ensure_iid_partitions,
+    ensure_dirichlet_partitions,
+    default_partition_path,
+)
 
 
 def run_id_now() -> str:
@@ -91,12 +97,16 @@ class OrchestratorConfig:
     veins_port: int = 9999
 
     # dataset/partition (NEW)
-    dataset: str = "cifar10"
+    # dataset: str = "cifar10"
+    data_dir: str = "/app/data"
     dataset_train_size: int = 50_000  # CIFAR-10 train
     # partition_scheme: str = "iid"
-    partition_scheme: str = "non-iid" # "iid" | "non-iid"
+    # partition_scheme: str = "non-iid" # "iid" | "non-iid"
+    PARTITION_SCHEME: str = "dirichlet"
 
     partition_path: str = ""          # optional override
+    dirichlet_alpha: float = 0.5
+
 
 
 
@@ -120,26 +130,50 @@ class OrchestratorCore:
         with open(os.path.join(self.run_dir, "config_snapshot.json"), "w", encoding="utf-8") as f:
             json.dump({"run_id": self.run_id, "cfg": cfg.__dict__}, f, indent=2)
 
-        # --- dataset partitions (NEW, run once at start) ---2026年2月17日
-        out_dir_abs = os.path.abspath(cfg.out_dir)  # /app/outputs (WORKDIR=/app)
-        self.partition_path = cfg.partition_path or default_partition_path(
-            out_dir_abs=out_dir_abs,
-            dataset=cfg.dataset,
-            num_veh=cfg.num_vehicles,
-            seed=cfg.seed,
-            scheme=cfg.partition_scheme,
-        )
-        if cfg.partition_scheme != "iid":
+        # --- dataset partitions (run once at start) ---
+        out_dir_abs = os.path.abspath(cfg.out_dir)
+
+        scheme = (cfg.partition_scheme or "iid").lower()
+        if scheme in ("iid", "i.i.d"):
+            scheme_tag = "iid"
+            self.partition_path = cfg.partition_path or default_partition_path(
+                out_dir_abs=out_dir_abs,
+                dataset=cfg.dataset,
+                num_veh=cfg.num_vehicles,
+                seed=cfg.seed,
+                scheme=scheme_tag,
+            )
+            ensure_iid_partitions(
+                path=self.partition_path,
+                dataset=cfg.dataset,
+                num_veh=cfg.num_vehicles,
+                seed=cfg.seed,
+                n_train=cfg.dataset_train_size,
+            )
+
+        elif scheme in ("non-iid", "noniid", "dirichlet"):
+            scheme_tag = f"dirichlet_a{cfg.dirichlet_alpha}"
+            self.partition_path = cfg.partition_path or default_partition_path(
+                out_dir_abs=out_dir_abs,
+                dataset=cfg.dataset,
+                num_veh=cfg.num_vehicles,
+                seed=cfg.seed,
+                scheme=scheme_tag,
+            )
+            ensure_dirichlet_partitions(
+                path=self.partition_path,
+                dataset=cfg.dataset,
+                num_veh=cfg.num_vehicles,
+                seed=cfg.seed,
+                data_dir=cfg.data_dir,
+                alpha=cfg.dirichlet_alpha,
+                n_train=cfg.dataset_train_size,
+            )
+        else:
             raise ValueError(f"Unsupported partition_scheme={cfg.partition_scheme}")
 
-        ensure_iid_partitions(
-            path=self.partition_path,
-            dataset=cfg.dataset,
-            num_veh=cfg.num_vehicles,
-            seed=cfg.seed,
-            n_train=cfg.dataset_train_size,
-        )
         print(f"[orch-core] partitions ready: {self.partition_path}")
+
 
 
         # csv schema
@@ -368,6 +402,7 @@ class OrchestratorCore:
                         "dataset": self.cfg.dataset,
                         "partition_scheme": self.cfg.partition_scheme,
                         "num_veh": self.cfg.num_vehicles,
+                        "dirichlet_alpha": self.cfg.dirichlet_alpha,
                     },
                 })
 
