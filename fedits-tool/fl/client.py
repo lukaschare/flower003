@@ -136,7 +136,8 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
             # You can add Normalize later if needed
         ])
         self.trainset = torchvision.datasets.CIFAR10(
-            root=self.data_dir, train=True, download=True, transform=transform
+            # root=self.data_dir, train=True, download=True, transform=transform
+            root=self.data_dir, train=True, download=False, transform=transform
         )
 
         self.slot_id = derive_slot_id()
@@ -175,9 +176,17 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
 
         # partition_path should come from orchestrator->server->client config
         # fallback to env (so you can still run before wiring orchestrator change)
+
+        # partition_path = str(config.get("partition_path", "")).strip()
+        # if not partition_path:
+        #     partition_path = env_str("PARTITION_PATH", "/app/outputs/partitions/cifar10_N100_seed42_iid.json")
+
         partition_path = str(config.get("partition_path", "")).strip()
         if not partition_path:
-            partition_path = env_str("PARTITION_PATH", "/app/outputs/partitions/cifar10_N100_seed42_iid.json")
+            partition_path = env_str("PARTITION_PATH", "").strip()
+        if not partition_path:
+            raise RuntimeError("Missing partition_path. Set PARTITION_PATH env or orchestrator must inject it.")
+
 
         # allow orchestrator override CI
         if "ci_g_per_kwh" in config:

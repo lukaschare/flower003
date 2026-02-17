@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import os
 import json
-import urllib.request
-from typing import Dict, List, Tuple, Optional, Any
 import time
+import urllib.request
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List, Tuple, Optional, Any
 
 import numpy as np
 import flwr as fl
@@ -19,11 +23,13 @@ from flwr.server.client_manager import ClientManager
 def env_str(name: str, default: str) -> str:
     return str(os.getenv(name, default))
 
+
 def env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, default))
     except Exception:
         return default
+
 
 def params_l2_norm(nds: List[np.ndarray]) -> float:
     s = 0.0
@@ -32,25 +38,109 @@ def params_l2_norm(nds: List[np.ndarray]) -> float:
         s += float(np.sum(aa * aa))
     return float(s ** 0.5)
 
+
 def aggregate_weighted(params_and_weights: List[Tuple[List[np.ndarray], int]]) -> List[np.ndarray]:
-    """
-    Multi-layer weighted average (FedAvg):
-      agg[layer] = sum_i w_i * p_i[layer] / sum_i w_i
-    """
+    """Multi-layer weighted average (FedAvg)."""
     total = float(sum(w for _, w in params_and_weights))
     if total <= 0:
-        # return first as fallback (should not happen if weights>0)
         return params_and_weights[0][0]
 
     n_layers = len(params_and_weights[0][0])
     agg = [np.zeros_like(params_and_weights[0][0][k]) for k in range(n_layers)]
-
     for params, w in params_and_weights:
         wf = float(w) / total
         for k in range(n_layers):
             agg[k] += params[k] * wf
-
     return agg
+
+
+# -------------------------
+# Run Logger (JSONL events + CSV metrics)
+# -------------------------
+@dataclass
+class RunPaths:
+    run_dir: str
+    events_path: str
+    metrics_path: str
+
+
+class RunLogger:
+    """Append-only run logger: JSONL events + CSV round metrics (for Streamlit)."""
+
+    def __init__(self, base_dir: str, run_id: Optional[str] = None):
+        if run_id is None:
+            run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join(base_dir, run_id)
+
+        # Ensure writable
+        os.makedirs(run_dir, exist_ok=True)
+
+        self.paths = RunPaths(
+            run_dir=run_dir,
+            events_path=os.path.join(run_dir, "events.jsonl"),
+            metrics_path=os.path.join(run_dir, "round_metrics.csv"),
+        )
+        self._metrics_header_written = os.path.exists(self.paths.metrics_path)
+
+    def log_event(self, event_type: str, server_round: int, payload: Dict[str, Any]) -> None:
+        rec = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "type": event_type,
+            "round": int(server_round),
+            "payload": payload,
+        }
+        with open(self.paths.events_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    def log_round_metrics(
+        self,
+        server_round: int,
+        selected: int,
+        received: int,
+        kept: int,
+        dropped: int,
+        agg_scalar: Optional[float],
+    ) -> None:
+        import csv
+
+        row = {
+            "round": int(server_round),
+            "selected": int(selected),
+            "received": int(received),
+            "kept": int(kept),
+            "dropped": int(dropped),
+            "agg_scalar": "" if agg_scalar is None else f"{float(agg_scalar):.8f}",
+        }
+        write_header = not self._metrics_header_written
+        with open(self.paths.metrics_path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+                self._metrics_header_written = True
+            w.writerow(row)
+
+    def write_manifest(self, extra: Optional[Dict[str, Any]] = None) -> None:
+        manifest = {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "run_dir": self.paths.run_dir,
+        }
+        if extra:
+            manifest.update(extra)
+        path = os.path.join(self.paths.run_dir, "manifest.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+
+# -------------------------
+# Optional terminal TUI (rich)
+# -------------------------
+def optional_progress_board(num_rounds: int, title: str):
+    """Return ProgressBoard class if rich is available, else None."""
+    try:
+        from progress_ui import ProgressBoard  # your file
+        return ProgressBoard(num_rounds=num_rounds, title=title)
+    except Exception:
+        return None
 
 
 # -------------------------
@@ -58,6 +148,7 @@ def aggregate_weighted(params_and_weights: List[Tuple[List[np.ndarray], int]]) -
 # -------------------------
 class OrchestratorHttpClient:
     """Minimal HTTP client for Orchestrator control-plane service."""
+
     def __init__(self, base_url: str, timeout_s: float = 60.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = float(timeout_s)
@@ -103,50 +194,88 @@ def build_cifar10_cnn_params() -> List[np.ndarray]:
             return self.fc2(x)
 
     m = SimpleCifarCNN()
-    # stable order: state_dict items
     return [v.detach().cpu().numpy() for _, v in m.state_dict().items()]
 
 
 # -------------------------
-# Proxy Strategy (strict separation)
+# Proxy Strategy (Orchestrator controls selection + commit/drop)
 # -------------------------
 class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
-    """
-    STRICT separation:
-    - Orchestrator (control plane): selection, Veins down/up simulation, commit/drop, logs, t_sim advance
-    - Flower server (data plane): only dispatches fit and aggregates committed updates
-    - Flower clients (compute plane): real training + comp energy/carbon metrics
-
-    For each round:
-    1) configure_fit -> ask Orchestrator who trains + fit_config per selected physical client_id
-    2) aggregate_fit -> send client train metrics to Orchestrator, get committed client_ids
-    3) aggregate only committed updates (multi-layer FedAvg)
-    4) report global_model_norm back to Orchestrator finalize (server_round.csv, advance t_sim)
-    """
-
     def __init__(
         self,
         orch_url: str,
         min_fit_clients: int = 1,
         min_available_clients: int = 10,
         wait_timeout: int = 60,
+        board: Optional[Any] = None,
+        logger: Optional[RunLogger] = None,
+        verbose: bool = True,
     ) -> None:
         super().__init__()
         self.orch = OrchestratorHttpClient(orch_url, timeout_s=90.0)
 
-        # CNN init params
         self.init_params_nd = build_cifar10_cnn_params()
-
         self.min_fit_clients = int(min_fit_clients)
         self.min_available_clients = int(min_available_clients)
         self.wait_timeout = int(wait_timeout)
 
+        self.board = board
+        self.logger = logger
+        self.verbose = bool(verbose)
+
+        self._selected_per_round: Dict[int, List[str]] = {}
+
         try:
             h = self.orch.get("/health")
-            print(f"[server] Orchestrator health: {h}")
+            self._log(f"[server] Orchestrator health: {h}")
         except Exception as e:
-            print(f"[server] Orchestrator not reachable yet: {e}")
+            self._log(f"[server] Orchestrator not reachable yet: {e}")
 
+    # ---------- small utils ----------
+    def _log(self, msg: str) -> None:
+        if self.board is not None and hasattr(self.board, "log"):
+            try:
+                self.board.log(msg)
+                return
+            except Exception:
+                pass
+        if self.verbose:
+            print(msg)
+
+    def _log_event(self, t: str, r: int, payload: Dict[str, Any]) -> None:
+        if self.logger is None:
+            return
+        try:
+            self.logger.log_event(t, r, payload)
+        except Exception as e:
+            self._log(f"[logger] log_event failed: {t} r={r} err={e}")
+
+    def _log_round_metrics(self, r: int, selected: int, received: int, kept: int, dropped: int, agg_scalar: Optional[float]) -> None:
+        if self.logger is None:
+            return
+        try:
+            self.logger.log_round_metrics(r, selected, received, kept, dropped, agg_scalar)
+        except Exception as e:
+            self._log(f"[logger] log_round_metrics failed: r={r} err={e}")
+
+    def _board_call(self, name: str, *args) -> None:
+        if self.board is None:
+            return
+        if hasattr(self.board, name):
+            try:
+                getattr(self.board, name)(*args)
+            except Exception:
+                pass
+
+    def _get_all_clients(self, client_manager: ClientManager) -> Dict[str, fl.server.client_proxy.ClientProxy]:
+        if hasattr(client_manager, "all"):
+            return client_manager.all()  # type: ignore
+        # fallback
+        n = client_manager.num_available()
+        sampled = client_manager.sample(n, n)
+        return {c.cid: c for c in sampled}
+
+    # ---------- Flower Strategy API ----------
     def initialize_parameters(self, client_manager: ClientManager) -> Optional[Parameters]:
         return ndarrays_to_parameters(self.init_params_nd)
 
@@ -156,60 +285,71 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
         parameters: Parameters,
         client_manager: ClientManager,
     ) -> List[Tuple[fl.server.client_proxy.ClientProxy, FitIns]]:
-        # Wait for physical clients
+        self._board_call("on_round_start", server_round)
+        self._log_event("ROUND_START", server_round, {})
+
+        # Wait for clients with progress logs (instead of a silent wait_for)
         wait_num = self.min_available_clients if server_round == 1 else self.min_fit_clients
-        print(f"[round {server_round}] Waiting for {wait_num} clients (timeout={self.wait_timeout}s)...")
+        self._log(f"[round {server_round}] waiting for >= {wait_num} clients (timeout={self.wait_timeout}s) ...")
 
-        success = client_manager.wait_for(num_clients=wait_num, timeout=self.wait_timeout)
-        if not success:
-            print(f"[round {server_round}] Timeout! Only {len(client_manager.all())} clients connected. Skipping round.")
-            return []
+        t0 = time.time()
+        last_log = 0.0
+        while client_manager.num_available() < wait_num:
+            now = time.time()
+            if now - t0 > self.wait_timeout:
+                self._log(f"[round {server_round}] timeout: available={client_manager.num_available()} < {wait_num}, skip round.")
+                self._log_event("WAIT_TIMEOUT", server_round, {"available": client_manager.num_available(), "required": wait_num})
+                self._board_call("on_round_end")
+                self._log_event("ROUND_END", server_round, {"note": "wait_timeout"})
+                return []
+            if now - last_log >= 2.0:
+                self._log_event("WAIT_AVAILABLE", server_round, {"available": client_manager.num_available(), "required": wait_num})
+                last_log = now
+            time.sleep(0.5)
 
-        all_clients = list(client_manager.all().values())
-        available_ids = [cp.cid for cp in all_clients]
+        all_clients = self._get_all_clients(client_manager)
+        available_ids = list(all_clients.keys())
 
-        print(f"[Round {server_round}] Step 1: Physical connected clients = {len(available_ids)}")
-        print(f"2. Local Physical IDs (Scope sent to Orch): {available_ids}")
-
-        # Ask Orchestrator (logical selection)
+        # Ask orchestrator (logical selection + per-cid fit_config)
         resp = self.orch.post(
             "/v1/round/configure_fit",
-            {
-                "server_round": int(server_round),
-                "available_client_ids": available_ids,
-            },
+            {"server_round": int(server_round), "available_client_ids": available_ids},
         )
         if not resp.get("ok", False):
-            print(f"[server] configure_fit failed: {resp}")
+            self._log(f"[server] configure_fit failed: {resp}")
+            self._log_event("ERROR", server_round, {"stage": "configure_fit", "resp": resp})
+            self._board_call("on_round_end")
+            self._log_event("ROUND_END", server_round, {"note": "configure_fit_failed"})
             return []
 
-        assignments = resp.get("train_assignments", [])
+        assignments = resp.get("train_assignments", []) or []
+        selected = [a.get("client_id", "") for a in assignments if a.get("client_id", "")]
+        self._selected_per_round[server_round] = list(selected)
 
-        # If Orchestrator selected nobody, force time advance (common when SUMO time is still early)
+        self._board_call("on_select", selected)
+        self._log_event("SELECT", server_round, {"selected": selected, "available": available_ids})
+
+        # If nobody selected, force time advance (common when SUMO time is still early)
         if not assignments:
-            print(f"[Round {server_round}] No clients selected (Orch empty). Forcing time advance...")
-            self.orch.post(
-                "/v1/round/finalize",
-                {"server_round": int(server_round), "global_model_norm": 0.0},
-            )
+            self._log(f"[round {server_round}] no clients selected (orch empty). finalize to advance time.")
+            try:
+                self.orch.post("/v1/round/finalize", {"server_round": int(server_round), "global_model_norm": 0.0})
+            except Exception as e:
+                self._log(f"[server] finalize (empty) failed: {e}")
+            self._board_call("on_round_end")
+            self._log_event("ROUND_END", server_round, {"note": "empty_selection"})
             return []
 
-        print(f"[Round {server_round}] Step 2: Orchestrator selected = {len(assignments)} "
-              f"(Filtered out {len(available_ids) - len(assignments)})")
-
-        # Dispatch fit tasks
-        by_cid = {cp.cid: cp for cp in all_clients}
         fit_instructions: List[Tuple[fl.server.client_proxy.ClientProxy, FitIns]] = []
-
         for a in assignments:
             cid = a.get("client_id", "")
-            cfg = a.get("fit_config", {})  # should include veh_id, ci, partition_path, etc.
-            cp = by_cid.get(cid)
+            cfg = a.get("fit_config", {})  # contains veh_id, partition_path, etc.
+            cp = all_clients.get(cid)
             if cp is None:
                 continue
             fit_instructions.append((cp, FitIns(parameters, cfg)))
 
-        print(f"[round {server_round}] dispatch_fit={len(fit_instructions)} (from assignments={len(assignments)})")
+        self._log(f"[round {server_round}] dispatch_fit={len(fit_instructions)} selected={len(selected)}")
         return fit_instructions
 
     def aggregate_fit(
@@ -218,7 +358,11 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
         results: List[Tuple[fl.server.client_proxy.ClientProxy, FitRes]],
         failures,
     ) -> Tuple[Optional[Parameters], Dict]:
-        # Send fit metrics to Orchestrator for commit/drop decision
+        received = [cp.cid for cp, _ in results]
+        self._board_call("on_recv", received)
+        self._log_event("RECV", server_round, {"received": received, "num_failures": len(failures) if failures else 0})
+
+        # Send fit metrics to orchestrator for commit/drop decision
         fit_results_payload: List[dict] = []
         for cp, fitres in results:
             m = dict(fitres.metrics) if fitres.metrics else {}
@@ -233,19 +377,25 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
                 }
             )
 
-        dec = self.orch.post(
-            "/v1/round/decide_commit",
-            {
-                "server_round": int(server_round),
-                "fit_results": fit_results_payload,
-            },
-        )
+        try:
+            dec = self.orch.post(
+                "/v1/round/decide_commit",
+                {"server_round": int(server_round), "fit_results": fit_results_payload},
+            )
+        except Exception as e:
+            dec = {"ok": False, "error": str(e)}
 
         if not dec.get("ok", False):
-            print(f"[server] decide_commit failed: {dec}")
+            self._log(f"[server] decide_commit failed: {dec}")
             committed = set()
         else:
             committed = set(dec.get("committed_client_ids", []))
+
+        keep = sorted(list(committed))
+        drop = [cid for cid in received if cid not in committed]
+
+        self._board_call("on_verdict", keep, drop)
+        self._log_event("VERDICT", server_round, {"keep": keep, "drop": drop, "reason": dec.get("reason", {})})
 
         # Aggregate only committed updates (multi-layer FedAvg)
         params_and_weights: List[Tuple[List[np.ndarray], int]] = []
@@ -255,29 +405,46 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
             nds = parameters_to_ndarrays(fitres.parameters)
             w = int(fitres.num_examples) if fitres.num_examples is not None else 0
             if w <= 0:
-                # empty partition -> ignore
                 continue
             params_and_weights.append((nds, w))
 
         if not params_and_weights:
             new_params = None
-            global_norm = float("nan")
+            agg_scalar = None
         else:
             agg_nds = aggregate_weighted(params_and_weights)
             new_params = ndarrays_to_parameters(agg_nds)
-            global_norm = params_l2_norm(agg_nds)
+            # For dashboard compatibility, we log it as agg_scalar
+            agg_scalar = float(params_l2_norm(agg_nds))
 
-        # Finalize round in Orchestrator (server_round.csv + advance t_sim happens there)
-        fin = self.orch.post(
-            "/v1/round/finalize",
-            {"server_round": int(server_round), "global_model_norm": float(global_norm) if global_norm == global_norm else 0.0},
+        self._board_call("on_agg", agg_scalar)
+        self._log_event("AGG", server_round, {"agg_scalar": agg_scalar})
+
+        selected_cnt = len(self._selected_per_round.get(server_round, []))
+        self._log_round_metrics(
+            r=server_round,
+            selected=selected_cnt,
+            received=len(received),
+            kept=len(keep),
+            dropped=len(drop),
+            agg_scalar=agg_scalar,
         )
-        if not fin.get("ok", False):
-            print(f"[server] finalize failed: {fin}")
 
-        return new_params, {"m_committed": len(committed), "global_model_norm": global_norm}
+        # Finalize round in orchestrator (advance t_sim + write server_round.csv happens there)
+        try:
+            self.orch.post(
+                "/v1/round/finalize",
+                {"server_round": int(server_round), "global_model_norm": float(agg_scalar) if agg_scalar is not None else 0.0},
+            )
+        except Exception as e:
+            self._log(f"[server] finalize failed: {e}")
 
-    # MVP: disable evaluate
+        self._board_call("on_round_end")
+        self._log_event("ROUND_END", server_round, {"kept": len(keep), "dropped": len(drop), "agg_scalar": agg_scalar})
+
+        return new_params, {"kept": len(keep), "dropped": len(drop), "agg_scalar": agg_scalar}
+
+    # disable evaluate
     def configure_evaluate(self, server_round: int, parameters: Parameters, client_manager: ClientManager):
         return []
 
@@ -297,18 +464,56 @@ def main() -> None:
     min_fit_clients = env_int("MIN_FIT_CLIENTS", 1)
     min_available_clients = env_int("MIN_AVAILABLE_CLIENTS", 10)
 
+    outputs_dir = env_str("OUTPUTS_DIR", "/app/outputs")
+    run_id = env_str("RUN_ID", "").strip() or None
+
+    # Logger is mandatory for Streamlit dashboard
+    try:
+        logger = RunLogger(base_dir=outputs_dir, run_id=run_id)
+        logger.write_manifest(
+            {
+                "server_address": SERVER_ADDR,
+                "num_rounds": ROUNDS,
+                "orch_url": ORCH_URL,
+                "wait_timeout": wait_timeout,
+                "min_fit_clients": min_fit_clients,
+                "min_available_clients": min_available_clients,
+            }
+        )
+    except Exception as e:
+        print(f"[server] FATAL: cannot write outputs_dir={outputs_dir}. "
+              f"Fix docker volume (remove :ro) or set OUTPUTS_DIR. err={e}")
+        raise
+
+    run_dir = logger.paths.run_dir
+    print(f"[server] logging enabled: {run_dir}")
+    print(f"[server] streamlit: set Run directory to this path (host): outputs/{os.path.basename(run_dir)}")
+
+    # Optional terminal TUI (rich). Enable with ENABLE_TUI=1
+    board = None
+    if env_int("ENABLE_TUI", 0) == 1:
+        board = optional_progress_board(num_rounds=ROUNDS, title=f"Run: {os.path.basename(run_dir)}")
+
     strat = ProxyOrchestratedFedAvg(
         orch_url=ORCH_URL,
         min_fit_clients=min_fit_clients,
         min_available_clients=min_available_clients,
         wait_timeout=wait_timeout,
+        board=board,
+        logger=logger,
+        verbose=True,
     )
 
-    fl.server.start_server(
-        server_address=SERVER_ADDR,
-        config=fl.server.ServerConfig(num_rounds=ROUNDS),
-        strategy=strat,
-    )
+    config = fl.server.ServerConfig(num_rounds=ROUNDS)
+
+    if board is not None:
+        with board as b:
+            strat.board = b
+            b.log(f"Logging to: {run_dir}")
+            b.log(f"Starting Flower server at {SERVER_ADDR}")
+            fl.server.start_server(server_address=SERVER_ADDR, config=config, strategy=strat)
+    else:
+        fl.server.start_server(server_address=SERVER_ADDR, config=config, strategy=strat)
 
 
 if __name__ == "__main__":

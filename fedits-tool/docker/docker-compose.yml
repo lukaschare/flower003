@@ -22,6 +22,11 @@ services:
       OUT_DIR: outputs
       PYTHONPATH: /app   # <--- 注意：这里要用冒号 : 并且后面有个空格
 
+      PARTITION_SCHEME: dirichlet   # 或 non-iid
+      DIRICHLET_ALPHA: 0.3
+      DATA_DIR: /app/data
+
+
       # Veins side
       VEINS_MODE: rpc           # mock | rpc
       VEINS_HOST: 172.17.0.1    # Linux host gateway (Veins runs on host)
@@ -60,7 +65,8 @@ services:
       ORCH_URL: http://orchestrator:7070
 
     volumes:
-      - ../outputs:/app/outputs:ro
+      # - ../outputs:/app/outputs:ro
+      - ../outputs:/app/outputs
       - ../data:/app/data:ro
 
   fl_client:

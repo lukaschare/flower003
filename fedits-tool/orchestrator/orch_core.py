@@ -97,13 +97,17 @@ class OrchestratorConfig:
     veins_port: int = 9999
 
     # dataset/partition (NEW)
-    # dataset: str = "cifar10"
+    dataset: str = "cifar10"
     data_dir: str = "/app/data"
     dataset_train_size: int = 50_000  # CIFAR-10 train
+
     # partition_scheme: str = "iid"
     # partition_scheme: str = "non-iid" # "iid" | "non-iid"
-    PARTITION_SCHEME: str = "dirichlet"
+    # PARTITION_SCHEME: str = "dirichlet"
 
+    # "iid" | "dirichlet" (Dirichlet label-skew non-IID)
+    # partition_scheme: str = "iid"
+    partition_scheme: str = "dirichlet"   # default non-iid
     partition_path: str = ""          # optional override
     dirichlet_alpha: float = 0.5
 
