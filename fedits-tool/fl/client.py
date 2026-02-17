@@ -5,6 +5,8 @@ import os
 import time
 import json
 import re
+import hashlib
+
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
@@ -44,17 +46,38 @@ def derive_slot_id() -> str:
     # useful to debug docker-slot <-> physical client id mapping
     return os.getenv("HOSTNAME", "unknown")
 
+# === 新增的稳定 Hash 辅助函数 ===
+def stable_mod(s: str, mod: int) -> int:
+    h = hashlib.sha1((s or "").encode("utf-8")).digest()
+    v = int.from_bytes(h[:8], "big")
+    return v % mod
+# ===============================
+
+# def veh_id_to_index(veh_id: str, num_veh: int) -> int:
+#     """
+#     Preferred: veh0..veh(N-1) -> index by suffix.
+#     Fallback: hash -> modulo.
+#     """
+#     if num_veh <= 0:
+#         return 0
+#     m = re.search(r"(\d+)$", veh_id or "")
+#     if m:
+#         return int(m.group(1)) % num_veh
+#     return (abs(hash(veh_id)) % num_veh)
+
 def veh_id_to_index(veh_id: str, num_veh: int) -> int:
     """
     Preferred: veh0..veh(N-1) -> index by suffix.
-    Fallback: hash -> modulo.
+    Fallback: stable hash -> modulo.
     """
     if num_veh <= 0:
         return 0
     m = re.search(r"(\d+)$", veh_id or "")
     if m:
         return int(m.group(1)) % num_veh
-    return (abs(hash(veh_id)) % num_veh)
+    
+    # === 修改处：把原来的 return (abs(hash(veh_id)) % num_veh) 换成下面的 ===
+    return stable_mod(veh_id, num_veh)
 
 def load_partitions(partition_path: str) -> dict:
     with open(partition_path, "r", encoding="utf-8") as f:
@@ -136,8 +159,8 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
             # You can add Normalize later if needed
         ])
         self.trainset = torchvision.datasets.CIFAR10(
-            # root=self.data_dir, train=True, download=True, transform=transform
-            root=self.data_dir, train=True, download=False, transform=transform
+            root=self.data_dir, train=True, download=True, transform=transform
+            # root=self.data_dir, train=True, download=False, transform=transform
         )
 
         self.slot_id = derive_slot_id()

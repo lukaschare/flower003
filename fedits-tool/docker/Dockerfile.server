@@ -1,9 +1,18 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY . /app
 
+# 第一步：仅仅拷贝 requirements.txt，利用 Docker 缓存机制
+COPY requirements.txt .
+
+# 第二步：【非常关键！】提前强制安装 CPU 版本的 PyTorch，防止下载 4GB 的无用 GPU 库
+RUN pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu
+
+# 第三步：安装其余的依赖（因为上一步已经装了 torch，这里会自动跳过，只装 numpy/flwr 等小包）
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 第四步：再拷贝剩下的所有项目代码
+COPY . /app
 
 EXPOSE 8080
 CMD ["python", "-u", "fl/server.py"]
