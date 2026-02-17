@@ -7,14 +7,21 @@ import streamlit as st
 
 st.set_page_config(page_title="Hybrid FL Simulation Dashboard", layout="wide")
 
+
 def find_latest_run(outputs_dir="outputs"):
-    runs = sorted(glob.glob(os.path.join(outputs_dir, "*")), key=os.path.getmtime)
-    return runs[-1] if runs else None
+    # prefer outputs/runs/* (aligned orchestrator+server)
+    cand = []
+    runs_dir = os.path.join(outputs_dir, "runs")
+    if os.path.isdir(runs_dir):
+        cand = sorted(glob.glob(os.path.join(runs_dir, "*")), key=os.path.getmtime)
+    if not cand:
+        cand = sorted(glob.glob(os.path.join(outputs_dir, "*")), key=os.path.getmtime)
+    return cand[-1] if cand else None
+
 
 def load_events(path: str, max_lines: int = 2000):
     if not os.path.exists(path):
         return []
-    # 读最后若干行，够显示 current status + log
     with open(path, "r", encoding="utf-8") as f:
         lines = f.readlines()[-max_lines:]
     events = []
@@ -25,15 +32,18 @@ def load_events(path: str, max_lines: int = 2000):
             pass
     return events
 
+
 def latest_round_from_metrics(df: pd.DataFrame) -> int:
-    if df is None or df.empty:
+    if df is None or df.empty or "round" not in df.columns:
         return 0
     return int(df["round"].max())
 
+
 def extract_round_status(events, r: int):
-    # 找到该 round 最近的 SELECT/RECV/VERDICT/AGG
     sel = recv = keep = drop = []
     agg = None
+    train_loss = None
+    train_acc = None
     log_lines = []
     for e in events:
         if e.get("round") != r:
@@ -49,12 +59,13 @@ def extract_round_status(events, r: int):
             drop = p.get("drop", drop)
         elif t == "AGG":
             agg = p.get("agg_scalar", agg)
-        # 事件日志行（简化显示）
+            train_loss = p.get("train_loss", train_loss)
+            train_acc = p.get("train_acc", train_acc)
+
         ts = e.get("ts", "")
         log_lines.append(f"[{ts}] {t}: {p}")
-    # 生成类似“Current Round Status”表
+
     rows = []
-    # 这里只能展示 selection/verdict；后续你接 SUMO/OMNeT 再补 location/delay
     all_c = sorted(set(sel) | set(recv) | set(keep) | set(drop))
     for cid in all_c:
         status = "UNKNOWN"
@@ -65,19 +76,14 @@ def extract_round_status(events, r: int):
         elif cid in sel:
             status = "SELECTED"
         rows.append({"Client ID": cid, "Status": status})
-    return sel, recv, keep, drop, agg, rows, log_lines[-50:]  # 只显示最后 50 行
+
+    return sel, recv, keep, drop, agg, train_loss, train_acc, rows, log_lines[-50:]
+
 
 st.title("Hybrid FL Simulation Dashboard")
 
 run_dir = st.sidebar.text_input("Run directory", value=find_latest_run() or "")
 auto = st.sidebar.checkbox("Auto refresh (2s)", value=True)
-# if auto:
-#     st.experimental_set_query_params(_="refresh")
-#     st.autorefresh(interval=2000, key="refresh")
-
-# # Auto refresh (works on most recent Streamlit)
-# if auto:
-#     st.autorefresh(interval=2000, key="refresh")
 
 if auto:
     try:
@@ -85,51 +91,81 @@ if auto:
     except Exception:
         st.info("Auto refresh not supported in this Streamlit version. Press R to refresh the browser.")
 
-
 if not run_dir or not os.path.isdir(run_dir):
-    st.warning("No valid run directory found. Run the server first to generate outputs/<run_id>/")
+    st.warning("No valid run directory found. Run the server first to generate outputs/runs/<run_id>/")
     st.stop()
 
 metrics_path = os.path.join(run_dir, "round_metrics.csv")
 events_path = os.path.join(run_dir, "events.jsonl")
-
-col1, col2 = st.columns([2, 2])
+orch_round_path = os.path.join(run_dir, "server_round.csv")  # from orchestrator
 
 df = pd.read_csv(metrics_path) if os.path.exists(metrics_path) else pd.DataFrame()
 events = load_events(events_path)
-
 r_latest = latest_round_from_metrics(df)
+
+col1, col2 = st.columns([2, 2])
 
 with col1:
     st.subheader("Global Metric vs. Round")
-    if not df.empty and "agg_scalar" in df.columns:
-        # agg_scalar 可能是空字符串，转数值
-        df_plot = df.copy()
-        df_plot["agg_scalar"] = pd.to_numeric(df_plot["agg_scalar"], errors="coerce")
-        st.line_chart(df_plot.set_index("round")[["agg_scalar"]])
-    else:
+
+    if df is None or df.empty:
         st.info("No metrics yet.")
+    else:
+        df_plot = df.copy()
+
+        # coerce numeric columns (may be empty strings)
+        for c in ["agg_scalar", "train_loss", "train_acc"]:
+            if c in df_plot.columns:
+                df_plot[c] = pd.to_numeric(df_plot[c], errors="coerce")
+
+        # metric chooser (default: train_acc if exists)
+        candidates = []
+        if "train_acc" in df_plot.columns:
+            candidates.append("train_acc")
+        if "train_loss" in df_plot.columns:
+            candidates.append("train_loss")
+        if "agg_scalar" in df_plot.columns:
+            candidates.append("agg_scalar")
+
+        if not candidates:
+            st.info("No known metric columns found.")
+        else:
+            default_idx = 0
+            metric = st.selectbox("Metric", candidates, index=default_idx)
+            st.line_chart(df_plot.set_index("round")[[metric]])
 
 with col2:
-    st.subheader("Cumulative (Placeholder)")
-    # 你后面把 carbon/cumulative_carbon 写进 round_metrics.csv，这里直接画即可
-    if not df.empty and "carbon_g" in df.columns:
-        df_plot = df.copy()
-        df_plot["carbon_g"] = pd.to_numeric(df_plot["carbon_g"], errors="coerce")
-        df_plot["cum_carbon_g"] = df_plot["carbon_g"].fillna(0).cumsum()
-        st.line_chart(df_plot.set_index("round")[["cum_carbon_g"]])
+    st.subheader("Cumulative Carbon")
+
+    if os.path.exists(orch_round_path):
+        srv = pd.read_csv(orch_round_path)
+        if "round" in srv.columns:
+            srv = srv.sort_values("round")
+        # most important column in your orchestrator schema is co2_total_g
+        if "co2_total_g" in srv.columns:
+            srv["co2_total_g"] = pd.to_numeric(srv["co2_total_g"], errors="coerce").fillna(0.0)
+            srv["cum_co2_g"] = srv["co2_total_g"].cumsum()
+            st.metric("Cumulative CO2 (g)", f"{srv['cum_co2_g'].iloc[-1]:.2f}" if len(srv) else "0.00")
+            st.line_chart(srv.set_index("round")[["cum_co2_g"]] if "round" in srv.columns else srv[["cum_co2_g"]])
+        else:
+            st.info("server_round.csv found but 'co2_total_g' column not present.")
     else:
-        st.info("Carbon not logged in T0. (Will appear once you add accounting.)")
+        st.info("server_round.csv not found in this run dir. "
+                "Tip: ensure server logs to outputs/runs/<run_id> (aligned with orchestrator).")
 
 st.subheader(f"Current Round Status (Round {r_latest})")
-sel, recv, keep, drop, agg, rows, log_lines = extract_round_status(events, r_latest)
+sel, recv, keep, drop, agg, t_loss, t_acc, rows, log_lines = extract_round_status(events, r_latest)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("SELECT", len(sel))
 c2.metric("RECV", len(recv))
 c3.metric("KEEP", len(keep))
 c4.metric("DROP", len(drop))
-st.write(f"AGG_SCALAR: {agg}")
+
+m1, m2, m3 = st.columns(3)
+m1.metric("AGG_SCALAR", f"{agg:.6f}" if isinstance(agg, (int, float)) else "n/a")
+m2.metric("TRAIN_LOSS (kept-wavg)", f"{t_loss:.6f}" if isinstance(t_loss, (int, float)) else "n/a")
+m3.metric("TRAIN_ACC (kept-wavg)", f"{t_acc:.4f}" if isinstance(t_acc, (int, float)) else "n/a")
 
 st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
