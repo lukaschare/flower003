@@ -47,6 +47,22 @@ def comm_energy_j(p_rx_w: float, p_tx_w: float, t_down_s: float, t_up_s: float) 
 def comm_carbon_g(e_comm_j: float, ci_g_per_kwh: float) -> float:
     return joule_to_kwh(e_comm_j) * ci_g_per_kwh
 
+def normalize_drop_reason(raw: str) -> str:
+    r = (raw or "").strip().lower()
+
+    # 1) out_of_map / left_map
+    if r in {"left_map", "veh_missing", "mobility_missing"} or "missing" in r or "left_map" in r:
+        return "left_map"
+
+    # 2) out_of_range
+    if r in {"out_of_range", "left_coverage", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+        return "out_of_range"
+    if "coverage" in r or "out_of_range" in r or "left_range" in r:
+        return "out_of_range"
+
+    # 3) bad_signal / deadline / others
+    return "bad_signal"
+
 
 class CsvAppender:
     def __init__(self, path: str, fieldnames: List[str]) -> None:
@@ -184,6 +200,9 @@ class OrchestratorCore:
         self.clients_fields = [
             "run_id", "round", "client_id", "veh_id",
             "selected", "committed", "drop_reason",
+            "drop_group", "drop_stage", "dl_reason", "ul_reason",
+            "dl_dist_start_m", "dl_dist_end_m", "ul_dist_start_m", "ul_dist_end_m",
+            "dl_rx_power_dbm", "dl_sinr_db", "dl_per", "ul_rx_power_dbm", "ul_sinr_db", "ul_per",
             "t_round_start", "t_deadline",
             "t_dl_done", "t_ul_start", "t_ul_done",
             "t_down", "t_train", "t_up",
@@ -527,10 +546,30 @@ class OrchestratorCore:
                 committed = 1
                 committed_cids.append(cid)
 
+                dl_reason = str(dlr.reason or "")
+                ul_reason = str(ulr.reason or "")
+                if committed == 1:
+                    drop_stage = "OK"
+                    drop_group = "committed"
+                else:
+                    if not dlr.ok:
+                        drop_stage = "DL"
+                    elif mr is None:
+                        drop_stage = "TRAIN"
+                    else:
+                        drop_stage = "UL"
+                    drop_group = reason_group(drop_reason)
+
             if committed == 1:
                 co2_committed += co2_total
             else:
                 co2_dropped += co2_total
+
+            if committed == 0:
+                drop_reason = normalize_drop_reason(drop_reason)
+            else:
+                drop_reason = ""
+
 
             client_rows.append({
                 "run_id": self.run_id,
@@ -559,6 +598,21 @@ class OrchestratorCore:
                 "e_comm_j": e_comm_j,
                 "co2_comm_g": co2_comm_g,
                 "co2_total_g": co2_total,
+                "drop_group": drop_group,
+                "drop_stage": drop_stage,
+                "dl_reason": dl_reason,
+                "ul_reason": ul_reason,
+
+                "dl_dist_start_m": _get_attr(dlr, "dist_start_m"),
+                "dl_dist_end_m": _get_attr(dlr, "dist_end_m"),
+                "ul_dist_start_m": _get_attr(ulr, "dist_start_m"),
+                "ul_dist_end_m": _get_attr(ulr, "dist_end_m"),
+                "dl_rx_power_dbm": _get_attr(dlr, "rx_power_dbm"),
+                "dl_sinr_db": _get_attr(dlr, "sinr_db"),
+                "dl_per": _get_attr(dlr, "per"),
+                "ul_rx_power_dbm": _get_attr(ulr, "rx_power_dbm"),
+                "ul_sinr_db": _get_attr(ulr, "sinr_db"),
+                "ul_per": _get_attr(ulr, "per"),
             })
 
         # write per-client rows
@@ -584,6 +638,46 @@ class OrchestratorCore:
         }
 
         return {"ok": True, "committed_client_ids": committed_cids}
+
+    def normalize_reason(r: str) -> str:
+        r = (r or "").strip().lower()
+        if r in {"left_map", "veh_missing", "mobility_missing"}:
+            return "left_map"
+        if r in {"out_of_range", "left_coverage", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+            return "out_of_range"
+        # 其余全部算 bad_signal（deadline / link_down / train_missing / ul_deadline_miss / dl_failed / ul_failed ...)
+        return "bad_signal"
+
+        drop_reason = normalize_reason(drop_reason)
+
+
+    def reason_group(raw_reason: str) -> str:
+        r = (raw_reason or "").strip().lower()
+
+        if r in {"veh_missing", "mobility_missing", "veh_not_found", "left_map", "out_of_map", "veh_gone", "no_host"}:
+            return "out_of_map"
+        if "missing" in r or "left_map" in r or "out_of_map" in r:
+            return "out_of_map"
+
+        if r in {"left_coverage", "out_of_range", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+            return "out_of_range"
+        if "coverage" in r or "out_of_range" in r or "left_range" in r:
+            return "out_of_range"
+
+        if r in {"deadline", "dl_deadline_miss", "ul_deadline_miss", "ul_start_after_deadline", "link_down", "ul_link_down", "bad_signal"}:
+            return "bad_signal_or_deadline"
+        if "deadline" in r or "signal" in r or "link" in r or "per" in r or "pdr" in r:
+            return "bad_signal_or_deadline"
+
+        return "bad_signal_or_deadline"
+
+
+    def _get_attr(obj, name: str, default: float = float("nan")) -> float:
+        try:
+            return float(getattr(obj, name))
+        except Exception:
+            return float(default)
+
 
     # def finalize_round(self, server_round: int, global_model_norm: float) -> Dict[str, Any]:
     #     if server_round not in self.ctx:
@@ -643,3 +737,25 @@ class OrchestratorCore:
 
         return {"ok": True, "t_sim": self.t_sim, "run_id": self.run_id}
 
+    def reason_group(raw_reason: str) -> str:
+        r = (raw_reason or "").strip().lower()
+
+        # 1) out_of_map
+        if r in {"veh_missing", "mobility_missing", "veh_not_found", "left_map", "out_of_map", "veh_gone", "no_host"}:
+            return "out_of_map"
+        if "missing" in r or "left_map" in r or "out_of_map" in r:
+            return "out_of_map"
+
+        # 2) out_of_range
+        if r in {"left_coverage", "out_of_range", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+            return "out_of_range"
+        if "coverage" in r or "out_of_range" in r or "left_range" in r:
+            return "out_of_range"
+
+        # 3) bad_signal_or_deadline
+        if r in {"deadline", "dl_deadline_miss", "ul_deadline_miss", "ul_start_after_deadline", "link_down", "ul_link_down", "bad_signal"}:
+            return "bad_signal_or_deadline"
+        if "deadline" in r or "signal" in r or "link" in r or "per" in r or "pdr" in r:
+            return "bad_signal_or_deadline"
+
+        return "bad_signal_or_deadline"

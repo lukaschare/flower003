@@ -25,7 +25,7 @@ import random
 import socket
 from dataclasses import dataclass
 from typing import Dict, List, Optional
-
+from dataclasses import dataclass
 
 # -----------------------------
 # Data structures
@@ -43,6 +43,34 @@ class VeinsState:
     vehicles: Dict[str, VehicleState]
 
 
+# @dataclass
+# class DLResult:
+#     ok: bool
+#     t_done: float
+#     goodput_mbps: float
+#     rtt_ms: float
+#     reason: str = ""
+
+#     @staticmethod
+#     def fail(reason: str = "dl_failed") -> "DLResult":
+#         return DLResult(ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason)
+
+
+# @dataclass
+# class ULResult:
+#     ok: bool
+#     t_done: float
+#     goodput_mbps: float
+#     rtt_ms: float
+#     reason: str = ""
+
+#     @staticmethod
+#     def fail(reason: str = "ul_failed") -> "ULResult":
+#         return ULResult(ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason)
+
+
+
+
 @dataclass
 class DLResult:
     ok: bool
@@ -51,9 +79,27 @@ class DLResult:
     rtt_ms: float
     reason: str = ""
 
+    # Optional evidence fields (may be NaN if not provided by Veins)
+    dist_start_m: float = float("nan")
+    dist_end_m: float = float("nan")
+    rx_power_dbm: float = float("nan")
+    sinr_db: float = float("nan")
+    per: float = float("nan")
+
     @staticmethod
-    def fail(reason: str = "dl_failed") -> "DLResult":
-        return DLResult(ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason)
+    def fail(
+        reason: str = "dl_failed",
+        dist_start_m: float = float("nan"),
+        dist_end_m: float = float("nan"),
+        rx_power_dbm: float = float("nan"),
+        sinr_db: float = float("nan"),
+        per: float = float("nan"),
+    ) -> "DLResult":
+        return DLResult(
+            ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason,
+            dist_start_m=dist_start_m, dist_end_m=dist_end_m,
+            rx_power_dbm=rx_power_dbm, sinr_db=sinr_db, per=per,
+        )
 
 
 @dataclass
@@ -64,9 +110,29 @@ class ULResult:
     rtt_ms: float
     reason: str = ""
 
+    # Optional evidence fields (may be NaN if not provided by Veins)
+    dist_start_m: float = float("nan")
+    dist_end_m: float = float("nan")
+    rx_power_dbm: float = float("nan")
+    sinr_db: float = float("nan")
+    per: float = float("nan")
+
     @staticmethod
-    def fail(reason: str = "ul_failed") -> "ULResult":
-        return ULResult(ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason)
+    def fail(
+        reason: str = "ul_failed",
+        dist_start_m: float = float("nan"),
+        dist_end_m: float = float("nan"),
+        rx_power_dbm: float = float("nan"),
+        sinr_db: float = float("nan"),
+        per: float = float("nan"),
+    ) -> "ULResult":
+        return ULResult(
+            ok=False, t_done=-1.0, goodput_mbps=0.0, rtt_ms=0.0, reason=reason,
+            dist_start_m=dist_start_m, dist_end_m=dist_end_m,
+            rx_power_dbm=rx_power_dbm, sinr_db=sinr_db, per=per,
+        )
+
+
 
 
 # -----------------------------
