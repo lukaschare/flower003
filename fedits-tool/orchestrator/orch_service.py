@@ -58,6 +58,12 @@ def load_cfg_from_env() -> OrchestratorConfig:
         veins_mode=env_str("VEINS_MODE", "mock"),
         veins_host=env_str("VEINS_HOST", "127.0.0.1"),
         veins_port=env_int("VEINS_PORT", 9999),
+
+        dataset=env_str("DATASET", "cifar10"),
+        dataset_train_size=env_int("DATASET_TRAIN_SIZE", 50000),
+        partition_scheme=env_str("PARTITION_SCHEME", "iid"),
+        partition_path=env_str("PARTITION_PATH", ""),
+
     )
 
 

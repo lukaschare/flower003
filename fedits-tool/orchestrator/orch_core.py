@@ -19,6 +19,7 @@ from orchestrator.veins_client import (
     ULResult,
     BaseVeinsClient,
 )
+from orchestrator.dataset_partitions import ensure_iid_partitions, default_partition_path
 
 
 def run_id_now() -> str:
@@ -84,9 +85,19 @@ class OrchestratorConfig:
     # misc
     seed: int = 42
     out_dir: str = "outputs"
-    veins_mode: str = "mock"  # mock | rpc
+    # veins_mode: str = "mock"  # mock | rpc
+    veins_mode: str = "rpc"  # mock | rpc
     veins_host: str = "127.0.0.1"
     veins_port: int = 9999
+
+    # dataset/partition (NEW)
+    dataset: str = "cifar10"
+    dataset_train_size: int = 50_000  # CIFAR-10 train
+    # partition_scheme: str = "iid"
+    partition_scheme: str = "non-iid" # "iid" | "non-iid"
+
+    partition_path: str = ""          # optional override
+
 
 
 class OrchestratorCore:
@@ -108,6 +119,28 @@ class OrchestratorCore:
         ensure_dir(self.run_dir)
         with open(os.path.join(self.run_dir, "config_snapshot.json"), "w", encoding="utf-8") as f:
             json.dump({"run_id": self.run_id, "cfg": cfg.__dict__}, f, indent=2)
+
+        # --- dataset partitions (NEW, run once at start) ---2026年2月17日
+        out_dir_abs = os.path.abspath(cfg.out_dir)  # /app/outputs (WORKDIR=/app)
+        self.partition_path = cfg.partition_path or default_partition_path(
+            out_dir_abs=out_dir_abs,
+            dataset=cfg.dataset,
+            num_veh=cfg.num_vehicles,
+            seed=cfg.seed,
+            scheme=cfg.partition_scheme,
+        )
+        if cfg.partition_scheme != "iid":
+            raise ValueError(f"Unsupported partition_scheme={cfg.partition_scheme}")
+
+        ensure_iid_partitions(
+            path=self.partition_path,
+            dataset=cfg.dataset,
+            num_veh=cfg.num_vehicles,
+            seed=cfg.seed,
+            n_train=cfg.dataset_train_size,
+        )
+        print(f"[orch-core] partitions ready: {self.partition_path}")
+
 
         # csv schema
         self.clients_fields = [
@@ -329,6 +362,12 @@ class OrchestratorCore:
                         "t_round_start": t_round_start,
                         "t_deadline": t_deadline,
                         "server_round": server_round,
+
+                        # NEW: dataset partition routing
+                        "partition_path": self.partition_path,
+                        "dataset": self.cfg.dataset,
+                        "partition_scheme": self.cfg.partition_scheme,
+                        "num_veh": self.cfg.num_vehicles,
                     },
                 })
 

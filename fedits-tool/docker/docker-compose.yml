@@ -16,6 +16,7 @@ services:
     volumes:
       # 意思是：把宿主机的 "../outputs" 目录 <---> 映射到容器里的 "/app/outputs"
       - ../outputs:/app/outputs
+      - ../data:/app/data
     # ================================================
     environment:
       OUT_DIR: outputs
@@ -58,13 +59,33 @@ services:
       ROUNDS: 10
       ORCH_URL: http://orchestrator:7070
 
+    volumes:
+      - ../outputs:/app/outputs:ro
+      - ../data:/app/data:ro
+
   fl_client:
     build:
       context: ..
       dockerfile: docker/Dockerfile.client
     depends_on: [fl_server]
+
     environment:
       SERVER_ADDR: fl_server:8080
       P_COMP_W: 18
       CI_G_PER_KWH: 200
       SLEEP_SCALE: 0.10
+
+      # DATASET: cifar10
+      # DATA_DIR: /app/data
+      # NUM_VEH: 100
+      # SEED: 42
+      # PARTITION_MODE: iid
+      # PARTITION_PATH: /app/outputs/partitions/cifar10_N100_seed42_iid.json
+      # BATCH_SIZE: 64
+      # EPOCHS: 1
+      # LR: 0.01
+
+    volumes:
+      - ../outputs:/app/outputs:ro
+      - ../data:/app/data
+
