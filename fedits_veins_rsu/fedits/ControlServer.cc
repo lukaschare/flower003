@@ -126,7 +126,8 @@ void ControlServer::handleMessage(cMessage* msg) {
                 if (!s.finished) {
                     s.finished = true;
                     s.res.ok = false;
-                    s.res.reason = "deadline";
+                    // s.res.reason = "deadline";
+                    s.res.reason = "bad_signal";
                     s.res.t_done = -1.0;
                 }
             }
@@ -369,7 +370,8 @@ void ControlServer::tickOnce_() {
         if (now + eps >= deadline_ || dt <= 0.0) {
             s.finished = true;
             s.res.ok = false;
-            s.res.reason = "deadline";
+            // s.res.reason = "deadline";
+            s.res.reason = "bad_signal";
             continue;
         }
 
@@ -377,7 +379,8 @@ void ControlServer::tickOnce_() {
         if (it == hosts.end()) {
             s.finished = true;
             s.res.ok = false;
-            s.res.reason = "veh_missing";
+            // s.res.reason = "veh_missing";
+            s.res.reason = "left_map";
             continue;
         }
 
@@ -385,7 +388,8 @@ void ControlServer::tickOnce_() {
         if (!mob) {
             s.finished = true;
             s.res.ok = false;
-            s.res.reason = "mobility_missing";
+            // s.res.reason = "mobility_missing";
+            s.res.reason = "left_map";
             continue;
         }
 
@@ -394,7 +398,8 @@ void ControlServer::tickOnce_() {
         if (!inRange_(pos)) {
             s.finished = true;
             s.res.ok = false;
-            s.res.reason = "left_coverage";
+            // s.res.reason = "left_coverage";
+            s.res.reason = "out_of_range";
             continue;
         }
 
