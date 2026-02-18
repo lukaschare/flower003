@@ -1,21 +1,21 @@
 version 2
-run Default-0-20260214-15:33:45-15184
+run Default-0-20260218-17:28:42-8114
 attr configname Default
-attr datetime 20260214-15:33:45
+attr datetime 20260218-17:28:42
 attr experiment Default
 attr inifile omnetpp.ini
 attr iterationvars ""
 attr iterationvarsf ""
 attr measurement ""
 attr network RSUExampleScenario
-attr processid 15184
+attr processid 8114
 attr repetition 0
 attr replication #0
 attr resultdir results
 attr runnumber 0
 attr seedset 0
-param *.playgroundSizeX 4000m
-param *.playgroundSizeY 4000m
+param *.playgroundSizeX 2500m
+param *.playgroundSizeY 2500m
 param *.playgroundSizeZ 50m
 param *.control.port 10001
 param *.control.rsuX 2000
@@ -33,8 +33,8 @@ param *.manager.host "\"localhost\""
 param *.manager.port 9999
 param *.manager.autoShutdown true
 param *.manager.launchConfig "xmldoc(\"erlangen.launchd.xml\")"
-param *.rsu[0].mobility.x 2000
-param *.rsu[0].mobility.y 2000
+param *.rsu[0].mobility.x 1250
+param *.rsu[0].mobility.y 1250
 param *.rsu[0].mobility.z 3
 param *.rsu[*].applType "\"TraCIDemoRSU11p\""
 param *.rsu[*].appl.headerLength "80 bit"
@@ -472,4 +472,4 @@ vector 396 RSUExampleScenario.node[79].veinsmobility posy ETV
 vector 397 RSUExampleScenario.node[79].veinsmobility speed ETV
 vector 398 RSUExampleScenario.node[79].veinsmobility acceleration ETV
 vector 399 RSUExampleScenario.node[79].veinsmobility co2emission ETV
-vector 400 R
+vector 400 RSU
