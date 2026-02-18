@@ -4,7 +4,8 @@ sim:
   num_vehicles: 100
 
 rsu:
-  radius_m: 300
+  # radius_m: 300
+  radius_m: 500     # 确保这里的覆盖设置也是 500
 
 fl:
   clients_per_round: 10

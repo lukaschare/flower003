@@ -35,9 +35,15 @@ services:
       # scenario params (must match your Veins/SUMO)
       MAP_SIZE_M: 4000
       NUM_VEH: 100
-      RSU_X_M: 2000
-      RSU_Y_M: 2000
-      RSU_R_M: 3000
+
+      # RSU_X_M: 2000
+      # RSU_Y_M: 2000
+      # RSU_R_M: 3000
+
+      # RSU 坐标必须与 omnetpp.ini 中的 *.rsu[0].mobility.x/y 一致
+      RSU_X_M: 1250          # 原来是 2000 -> 改为 1250
+      RSU_Y_M: 1250          # 原来是 2000 -> 改为 1250
+      RSU_R_M: 500           # 原来是 3000 -> 改为 500, RSU 逻辑半径，建议与你的预期逻辑保持一致
 
       # FL params
       ROUNDS: 10
@@ -47,9 +53,15 @@ services:
       MODEL_UP_BYTES: 2000000
 
       # carbon/radio
-      CI_G_PER_KWH: 200
+      CI_G_PER_KWH: 153.0
       P_RX_W: 1.0
       P_TX_W: 1.5
+
+      CI_MODE: electricitymaps # fixed | electricitymaps 在这里指定,不需要在orch_core.py手动指定
+      ELECTRICITYMAPS_TOKEN: "eyEFSfkLXrarj0rSMNRn"  # 建议加上引号，防止Token里有特殊字符
+      ELECTRICITYMAPS_ZONE: ES
+      CI_CACHE_S: 300
+      
 
   fl_server:
     build:
@@ -78,7 +90,7 @@ services:
     environment:
       SERVER_ADDR: fl_server:8080
       P_COMP_W: 18
-      CI_G_PER_KWH: 200
+      CI_G_PER_KWH: 153.0
       SLEEP_SCALE: 0.10
 
       # DATASET: cifar10

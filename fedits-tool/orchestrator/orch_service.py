@@ -40,17 +40,32 @@ def env_float(k: str, d: float) -> float:
 
 def load_cfg_from_env() -> OrchestratorConfig:
     return OrchestratorConfig(
-        map_size_m=env_float("MAP_SIZE_M", 1000.0),
+        # map_size_m=env_float("MAP_SIZE_M", 1000.0),
+        # num_vehicles=env_int("NUM_VEH", 100),
+        # rsu_x_m=env_float("RSU_X_M", 500.0),
+        # rsu_y_m=env_float("RSU_Y_M", 500.0),
+        # rsu_radius_m=env_float("RSU_R_M", 300.0),
+
+        map_size_m=env_float("MAP_SIZE_M", 2500.0), # 改为 2500
         num_vehicles=env_int("NUM_VEH", 100),
-        rsu_x_m=env_float("RSU_X_M", 500.0),
-        rsu_y_m=env_float("RSU_Y_M", 500.0),
-        rsu_radius_m=env_float("RSU_R_M", 300.0),
+        rsu_x_m=env_float("RSU_X_M", 1250.0),       # 改为 1250
+        rsu_y_m=env_float("RSU_Y_M", 1250.0),       # 改为 1250
+        rsu_radius_m=env_float("RSU_R_M", 500.0),   # 改为 500
+
         rounds=env_int("ROUNDS", 10),
         clients_per_round=env_int("M", 10),
         deadline_s=env_float("DEADLINE_S", 25.0),
         model_down_bytes=env_int("MODEL_DOWN_BYTES", 2_000_000),
         model_up_bytes=env_int("MODEL_UP_BYTES", 2_000_000),
-        ci_g_per_kwh=env_float("CI_G_PER_KWH", 200.0),
+        ci_g_per_kwh=env_float("CI_G_PER_KWH", 153.0),
+
+        # === 新增环境变量 ===
+        ci_mode=env_str("CI_MODE", "fixed"),
+        emaps_token=env_str("ELECTRICITYMAPS_TOKEN", ""),
+        emaps_zone=env_str("ELECTRICITYMAPS_ZONE", "ES"),
+        ci_cache_s=env_int("CI_CACHE_S", 300),
+        # ==================
+
         p_rx_w=env_float("P_RX_W", 1.0),
         p_tx_w=env_float("P_TX_W", 1.5),
         seed=env_int("SEED", 42),

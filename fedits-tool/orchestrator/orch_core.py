@@ -7,6 +7,9 @@ import json
 import os
 import csv
 import random
+import urllib.parse
+import urllib.request
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Tuple, Any
@@ -63,6 +66,29 @@ def normalize_drop_reason(raw: str) -> str:
     # 3) bad_signal / deadline / others
     return "bad_signal"
 
+# --- 请将这部分代码贴在文件的顶部区域（例如 normalize_drop_reason 后面） ---
+
+def reason_group(raw_reason: str) -> str:
+    r = (raw_reason or "").strip().lower()
+    if r in {"veh_missing", "mobility_missing", "veh_not_found", "left_map", "out_of_map", "veh_gone", "no_host"}:
+        return "out_of_map"
+    if "missing" in r or "left_map" in r or "out_of_map" in r:
+        return "out_of_map"
+    if r in {"left_coverage", "out_of_range", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+        return "out_of_range"
+    if "coverage" in r or "out_of_range" in r or "left_range" in r:
+        return "out_of_range"
+    if r in {"deadline", "dl_deadline_miss", "ul_deadline_miss", "ul_start_after_deadline", "link_down", "ul_link_down", "bad_signal"}:
+        return "bad_signal_or_deadline"
+    if "deadline" in r or "signal" in r or "link" in r or "per" in r or "pdr" in r:
+        return "bad_signal_or_deadline"
+    return "bad_signal_or_deadline"
+
+def _get_attr(obj, name: str, default: float = float("nan")) -> float:
+    try:
+        return float(getattr(obj, name))
+    except Exception:
+        return float(default)
 
 class CsvAppender:
     def __init__(self, path: str, fieldnames: List[str]) -> None:
@@ -86,11 +112,18 @@ class CsvAppender:
 @dataclass
 class OrchestratorConfig:
     # sim
-    map_size_m: float = 1000.0
+    # map_size_m: float = 1000.0
+    # num_vehicles: int = 100
+    # rsu_x_m: float = 500.0
+    # rsu_y_m: float = 500.0
+    # rsu_radius_m: float = 300.0
+
+    # sim 
+    map_size_m: float = 2500.0  # 改为 2500
     num_vehicles: int = 100
-    rsu_x_m: float = 500.0
-    rsu_y_m: float = 500.0
-    rsu_radius_m: float = 300.0
+    rsu_x_m: float = 1250.0     # 改为 1250
+    rsu_y_m: float = 1250.0     # 改为 1250
+    rsu_radius_m: float = 500.0 # 改为 500
 
     # fl
     rounds: int = 10
@@ -100,9 +133,17 @@ class OrchestratorConfig:
     model_up_bytes: int = 2_000_000
 
     # carbon + radio power
-    ci_g_per_kwh: float = 200.0
+    ci_g_per_kwh: float = 153.0
     p_rx_w: float = 1.0
     p_tx_w: float = 1.5
+
+    # === 新增配置 ===
+    ci_mode: str = "fixed"       # fixed | electricitymaps
+    emaps_token: str = ""        # auth-token
+    emaps_zone: str = "ES"       # Zone key
+    ci_cache_s: int = 300        # Cache TTL
+    ci_timeout_s: float = 5.0    # Timeout
+    # ================
 
     # misc
     seed: int = 42
@@ -129,6 +170,63 @@ class OrchestratorConfig:
 
 
 
+# 3. 新增 Provider 类 (放在 OrchestratorConfig 后面，OrchestratorCore 前面)
+class CarbonIntensityProvider:
+    def __init__(self, cfg: OrchestratorConfig) -> None:
+        self.mode = (cfg.ci_mode or "fixed").lower().strip()
+        self.fixed_ci = float(cfg.ci_g_per_kwh)
+        self.token = (cfg.emaps_token or "").strip()
+        self.zone = (cfg.emaps_zone or "ES").strip()
+        self.base_url = "https://api.electricitymap.org"
+        self.cache_s = int(cfg.ci_cache_s) if cfg.ci_cache_s else 300
+        self.timeout_s = float(cfg.ci_timeout_s) if cfg.ci_timeout_s else 5.0
+        
+        self._cache_ts: float = 0.0
+        self._cache_ci: float = self.fixed_ci
+
+    def get_ci_g_per_kwh(self) -> float:
+        # 如果不是动态模式或没 Token，直接返回固定值
+        if self.mode != "electricitymaps" or not self.token:
+            return self.fixed_ci
+
+        now = time.time()
+        # 检查缓存
+        if self._cache_ts > 0 and (now - self._cache_ts) < self.cache_s:
+            return float(self._cache_ci)
+
+        # 构造请求
+        params = {"zone": self.zone}
+        url = f"{self.base_url}/v3/carbon-intensity/latest?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(
+            url,
+            headers={"auth-token": self.token, "accept": "application/json"}
+        )
+
+        try:
+            print(f"[orch-core] Fetching CI from Electricity Maps ({self.zone})...")
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"HTTP {resp.status}")
+                data = json.loads(resp.read().decode("utf-8"))
+            
+            # 提取数据
+            ci = float(data.get("carbonIntensity", self.fixed_ci))
+            print(f"[orch-core] API Success: CI={ci}")
+            
+            # 更新缓存
+            self._cache_ts = now
+            self._cache_ci = ci
+            return ci
+            
+        except Exception as e:
+            print(f"[orch-core] WARN: CI API failed ({e}), fallback to fixed={self.fixed_ci}")
+            # 失败时也更新缓存时间，防止下一秒立刻重试卡死系统，而是等待 cache_s 后再试
+            self._cache_ts = now
+            self._cache_ci = self.fixed_ci
+            return self.fixed_ci
+
+
+
 
 class OrchestratorCore:
     """
@@ -143,6 +241,8 @@ class OrchestratorCore:
         self.cfg = cfg
         self.run_id = run_id_now()
         self.t_sim = 0.0  # virtual sim time (round barrier time)
+        # === 初始化 Provider ===
+        self.ci_provider = CarbonIntensityProvider(cfg)
 
         # output
         self.run_dir = os.path.join(cfg.out_dir, "runs", self.run_id)
@@ -217,6 +317,7 @@ class OrchestratorCore:
             "m_selected", "m_committed", "dropout_rate",
             "global_model_norm",
             "co2_committed_g", "co2_dropped_g", "co2_total_g",
+            "ci_g_per_kwh_used",
             "t_round_start", "t_deadline",
         ]
         self.clients_csv = CsvAppender(os.path.join(self.run_dir, "clients_round.csv"), self.clients_fields)
@@ -333,6 +434,9 @@ class OrchestratorCore:
         t_round_start = self.t_sim
         t_deadline = t_round_start + self.cfg.deadline_s
 
+        # === 1. 获取本轮 CI ===
+        ci_now = self.ci_provider.get_ci_g_per_kwh()
+
         # refresh binding with currently alive cids
         self._refresh_bindings(available_client_ids)
 
@@ -415,7 +519,8 @@ class OrchestratorCore:
                     "veh_id": veh,
                     "fit_config": {
                         "veh_id": veh,
-                        "ci_g_per_kwh": self.cfg.ci_g_per_kwh,
+                        # "ci_g_per_kwh": self.cfg.ci_g_per_kwh,
+                        "ci_g_per_kwh": ci_now, # <--- 这里注入当前轮的 CI
                         "t_round_start": t_round_start,
                         "t_deadline": t_deadline,
                         "server_round": server_round,
@@ -433,6 +538,7 @@ class OrchestratorCore:
         self.ctx[server_round] = {
             "t_round_start": t_round_start,
             "t_deadline": t_deadline,
+            "ci_g_per_kwh": ci_now,  # <--- 存入 ctx
             "selected_pairs": selected_pairs,  # includes dl_fail pairs
             "dl": dl,
             "pending_server_row": None,
@@ -457,6 +563,9 @@ class OrchestratorCore:
             return {"ok": False, "error": f"no ctx for round {server_round}"}
 
         ctx = self.ctx[server_round]
+        # 读取当轮存储的 CI，用于计算通信能耗
+        ci_round = float(ctx.get("ci_g_per_kwh", self.cfg.ci_g_per_kwh))
+
         t_round_start = float(ctx["t_round_start"])
         t_deadline = float(ctx["t_deadline"])
         selected_pairs: List[Tuple[str, str]] = ctx["selected_pairs"]
@@ -527,49 +636,88 @@ class OrchestratorCore:
             co2_comp_g = float(mr.get("co2_comp_g", 0.0)) if mr else 0.0
 
             e_comm_j = comm_energy_j(self.cfg.p_rx_w, self.cfg.p_tx_w, t_down, t_up)
-            co2_comm_g = comm_carbon_g(e_comm_j, self.cfg.ci_g_per_kwh)
+            # co2_comm_g = comm_carbon_g(e_comm_j, self.cfg.ci_g_per_kwh)
+            # 计算通信碳排时使用 ci_round
+            co2_comm_g = comm_carbon_g(e_comm_j, ci_round)
+            
             co2_total = co2_comp_g + co2_comm_g
 
             # commit/drop semantics
+            # committed = 0
+            # drop_reason = ""
+
+            # if not dlr.ok:
+            #     drop_reason = dlr.reason or "dl_failed"
+            # elif mr is None:
+            #     drop_reason = "train_missing"
+            # elif not ulr.ok:
+            #     drop_reason = ulr.reason or "ul_failed"
+            # elif float(ulr.t_done) > t_deadline:
+            #     drop_reason = "ul_deadline_miss"
+            # else:
+            #     committed = 1
+            #     committed_cids.append(cid)
+
+            #     dl_reason = str(dlr.reason or "")
+            #     ul_reason = str(ulr.reason or "")
+            #     if committed == 1:
+            #         drop_stage = "OK"
+            #         drop_group = "committed"
+            #     else:
+            #         if not dlr.ok:
+            #             drop_stage = "DL"
+            #         elif mr is None:
+            #             drop_stage = "TRAIN"
+            #         else:
+            #             drop_stage = "UL"
+            #         drop_group = reason_group(drop_reason)
+
+            # if committed == 1:
+            #     co2_committed += co2_total
+            # else:
+            #     co2_dropped += co2_total
+
+            # if committed == 0:
+            #     drop_reason = normalize_drop_reason(drop_reason)
+            # else:
+            #     drop_reason = ""
+
+            
+            # ================= 替换从这里开始 =================
+            # commit/drop semantics
             committed = 0
             drop_reason = ""
+            dl_reason = str(dlr.reason or "")
+            ul_reason = str(ulr.reason or "")
+            drop_stage = "UNKNOWN"
+            drop_group = "unknown"
 
             if not dlr.ok:
                 drop_reason = dlr.reason or "dl_failed"
+                drop_stage = "DL"
             elif mr is None:
                 drop_reason = "train_missing"
+                drop_stage = "TRAIN"
             elif not ulr.ok:
                 drop_reason = ulr.reason or "ul_failed"
+                drop_stage = "UL"
             elif float(ulr.t_done) > t_deadline:
                 drop_reason = "ul_deadline_miss"
+                drop_stage = "UL"
             else:
                 committed = 1
                 committed_cids.append(cid)
-
-                dl_reason = str(dlr.reason or "")
-                ul_reason = str(ulr.reason or "")
-                if committed == 1:
-                    drop_stage = "OK"
-                    drop_group = "committed"
-                else:
-                    if not dlr.ok:
-                        drop_stage = "DL"
-                    elif mr is None:
-                        drop_stage = "TRAIN"
-                    else:
-                        drop_stage = "UL"
-                    drop_group = reason_group(drop_reason)
+                drop_stage = "OK"
+                drop_group = "committed"
 
             if committed == 1:
                 co2_committed += co2_total
             else:
                 co2_dropped += co2_total
-
-            if committed == 0:
                 drop_reason = normalize_drop_reason(drop_reason)
-            else:
-                drop_reason = ""
-
+                drop_group = reason_group(drop_reason)
+            # ================= 替换到这里结束 =================
+            
 
             client_rows.append({
                 "run_id": self.run_id,
@@ -633,50 +781,51 @@ class OrchestratorCore:
             "co2_committed_g": co2_committed,
             "co2_dropped_g": co2_dropped,
             "co2_total_g": co2_committed + co2_dropped,
+            "ci_g_per_kwh_used": ci_round,
             "t_round_start": t_round_start,
             "t_deadline": t_deadline,
         }
 
         return {"ok": True, "committed_client_ids": committed_cids}
 
-    def normalize_reason(r: str) -> str:
-        r = (r or "").strip().lower()
-        if r in {"left_map", "veh_missing", "mobility_missing"}:
-            return "left_map"
-        if r in {"out_of_range", "left_coverage", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
-            return "out_of_range"
-        # 其余全部算 bad_signal（deadline / link_down / train_missing / ul_deadline_miss / dl_failed / ul_failed ...)
-        return "bad_signal"
+    # def normalize_reason(r: str) -> str:
+    #     r = (r or "").strip().lower()
+    #     if r in {"left_map", "veh_missing", "mobility_missing"}:
+    #         return "left_map"
+    #     if r in {"out_of_range", "left_coverage", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+    #         return "out_of_range"
+    #     # 其余全部算 bad_signal（deadline / link_down / train_missing / ul_deadline_miss / dl_failed / ul_failed ...)
+    #     return "bad_signal"
 
-        drop_reason = normalize_reason(drop_reason)
-
-
-    def reason_group(raw_reason: str) -> str:
-        r = (raw_reason or "").strip().lower()
-
-        if r in {"veh_missing", "mobility_missing", "veh_not_found", "left_map", "out_of_map", "veh_gone", "no_host"}:
-            return "out_of_map"
-        if "missing" in r or "left_map" in r or "out_of_map" in r:
-            return "out_of_map"
-
-        if r in {"left_coverage", "out_of_range", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
-            return "out_of_range"
-        if "coverage" in r or "out_of_range" in r or "left_range" in r:
-            return "out_of_range"
-
-        if r in {"deadline", "dl_deadline_miss", "ul_deadline_miss", "ul_start_after_deadline", "link_down", "ul_link_down", "bad_signal"}:
-            return "bad_signal_or_deadline"
-        if "deadline" in r or "signal" in r or "link" in r or "per" in r or "pdr" in r:
-            return "bad_signal_or_deadline"
-
-        return "bad_signal_or_deadline"
+    #     drop_reason = normalize_reason(drop_reason)
 
 
-    def _get_attr(obj, name: str, default: float = float("nan")) -> float:
-        try:
-            return float(getattr(obj, name))
-        except Exception:
-            return float(default)
+    # def reason_group(raw_reason: str) -> str:
+    #     r = (raw_reason or "").strip().lower()
+
+    #     if r in {"veh_missing", "mobility_missing", "veh_not_found", "left_map", "out_of_map", "veh_gone", "no_host"}:
+    #         return "out_of_map"
+    #     if "missing" in r or "left_map" in r or "out_of_map" in r:
+    #         return "out_of_map"
+
+    #     if r in {"left_coverage", "out_of_range", "dl_left_range", "ul_left_range", "ul_out_of_range", "dl_out_of_range"}:
+    #         return "out_of_range"
+    #     if "coverage" in r or "out_of_range" in r or "left_range" in r:
+    #         return "out_of_range"
+
+    #     if r in {"deadline", "dl_deadline_miss", "ul_deadline_miss", "ul_start_after_deadline", "link_down", "ul_link_down", "bad_signal"}:
+    #         return "bad_signal_or_deadline"
+    #     if "deadline" in r or "signal" in r or "link" in r or "per" in r or "pdr" in r:
+    #         return "bad_signal_or_deadline"
+
+    #     return "bad_signal_or_deadline"
+
+
+    # def _get_attr(obj, name: str, default: float = float("nan")) -> float:
+    #     try:
+    #         return float(getattr(obj, name))
+    #     except Exception:
+    #         return float(default)
 
 
     # def finalize_round(self, server_round: int, global_model_norm: float) -> Dict[str, Any]:

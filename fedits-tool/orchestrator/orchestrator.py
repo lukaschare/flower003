@@ -41,14 +41,20 @@ from flwr_adapter import MockFlwrAdapter, TrainResult
 
 @dataclass
 class RsuConfig:
-    x_m: float = 500.0
-    y_m: float = 500.0
-    radius_m: float = 300.0
+    # x_m: float = 500.0
+    # y_m: float = 500.0
+    # radius_m: float = 300.0
+
+    # 修改这里：将 RSU 移动到地图中心 (2500 / 2 = 1250)
+    x_m: float = 1250.0    # 原来是 500.0
+    y_m: float = 1250.0    # 原来是 500.0
+    radius_m: float = 500.0  # 原来是 300.0,# 修改这里：范围设为 500m
 
 
 @dataclass
 class SimConfig:
-    map_size_m: float = 1000.0             # 1km x 1km
+    # map_size_m: float = 1000.0             # 1km x 1km
+    map_size_m: float = 2500.0             # 修改这里：扩大地图到 2500m x 2500m，确保 RSU 位于中心且有足够空间模拟车辆移动
     num_vehicles: int = 100
 
     # 这一行是报错的原因：
@@ -66,7 +72,7 @@ class SimConfig:
     model_up_bytes: int = 2_000_000        # ~2MB
 
     # carbon-intensity for mock (gCO2/kWh). Replace with your CI trace later.
-    ci_g_per_kwh: float = 200.0
+    ci_g_per_kwh: float = 153.0
 
     # simple radio power model for comm carbon (Watts)
     p_rx_w: float = 1.0

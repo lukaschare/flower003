@@ -1,11 +1,15 @@
 sim:
-  map_size_m: 1000
+  # map_size_m: 1000
+  map_size_m: 2500  # 修改为 2500
   num_vehicles: 100
 
 rsu:
-  x_m: 500
-  y_m: 500
-  radius_m: 300
+  # x_m: 500
+  # y_m: 500
+  # radius_m: 300
+  x_m: 1250         # 修改为 1250
+  y_m: 1250         # 修改为 1250
+  radius_m: 500     # 修改为 500
 
 fl:
   rounds: 10

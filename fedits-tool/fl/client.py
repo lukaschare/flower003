@@ -3,6 +3,7 @@
 
 import os
 import time
+import math
 import json
 import re
 import hashlib
@@ -143,9 +144,28 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
     """
 
     def __init__(self) -> None:
+
+        # ---------------------------------------------------------
+        # 1. 定义仿真参数 (基于 Xiao et al. 2022 & Yang et al. 2021)
+        # ---------------------------------------------------------
+        # kappa: 芯片物理系数, Yang et al. 2021 使用 1e-28
+        self.kappa = env_float("SIM_KAPPA", 1e-28)
+        
+        # c_n: 处理一个样本需要的 CPU 周期数 (Cycles/sample)
+        # 简单的 CNN (如 LeNet/SimpleCNN) 大约在 10^6 ~ 10^7 级别
+        # 你可以通过环境变量调整这个值来模拟不同复杂度的模型
+        self.cycles_per_sample = env_float("SIM_CYCLES_PER_SAMPLE", 1e7)
+        
+        # f_n: 车辆 CPU 频率 (Hz). 
+        # 可以通过环境变量为每个 Client 设置不同的频率 (例如: 1GHz - 4GHz)
+        # 模拟 "异构车辆" (Heterogeneous Vehicles)
+        self.cpu_freq_hz = env_float("SIM_CPU_FREQ", 1e9)  # 默认 1 GHz
+
+
+
         # energy model (placeholder; you can later swap to real measurement)
         self.p_comp_w = env_float("P_COMP_W", 18.0)
-        self.ci_g_per_kwh = env_float("CI_G_PER_KWH", 200.0)
+        self.ci_g_per_kwh = env_float("CI_G_PER_KWH", 153.0)
 
         # training hyper-params (can be overridden by fit_config)
         self.epochs = env_int("EPOCHS", 1)
@@ -212,6 +232,10 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
         if not partition_path:
             raise RuntimeError("Missing partition_path. Set PARTITION_PATH env or orchestrator must inject it.")
 
+        # 允许 Orchestrator 动态调整仿真参数 (可选)
+        if "sim_cpu_freq" in config:
+            self.cpu_freq_hz = float(config["sim_cpu_freq"])
+        
         # allow orchestrator override CI
         if "ci_g_per_kwh" in config:
             try:
@@ -263,6 +287,26 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
                 optimizer.step()
         t1 = time.time()
 
+        # --- 虚拟时间和能耗计算 (Virtual Calculation) ---
+        # 公式来源: Xiao et al. (2022) Eq.9 & Eq.10 / Yang et al. (2021) Eq.1 & Eq.3
+        
+        # 1. 总工作量 (Total CPU Cycles) = Epochs * Samples * Cycles/Sample
+        total_cpu_cycles = self.epochs * num_examples * self.cycles_per_sample
+        
+        # 2. 虚拟计算时间 (Virtual Time) = Total Cycles / Frequency
+        t_train_virtual = total_cpu_cycles / self.cpu_freq_hz
+        
+        # 3. 虚拟功率 (Virtual Power) = kappa * f^3
+        p_comp_virtual = self.kappa * (self.cpu_freq_hz ** 3)
+        
+        # 4. 虚拟能耗 (Virtual Energy) = Power * Time = kappa * Cycles * f^2
+        e_comp_virtual = p_comp_virtual * t_train_virtual
+
+        # 计算 CO2
+        co2_comp_virtual = joule_to_kwh(e_comp_virtual) * self.ci_g_per_kwh
+
+
+
         # compute train metrics on its own partition (after training)
         train_loss, train_acc = eval_on_loader(self.model, trainloader, self.device)
 
@@ -272,9 +316,13 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
 
         metrics = {
             "veh_id": veh_id,
-            "t_train_s": t_train_s,
-            "e_comp_j": e_comp_j,
-            "co2_comp_g": co2_comp_g,
+            # "t_train_s": t_train_s,
+            # "e_comp_j": e_comp_j,
+            "t_train_s": t_train_virtual,   # <--- 返回虚拟时间
+            "e_comp_j": e_comp_virtual,       # <--- 返回虚拟能耗
+            # "co2_comp_g": co2_comp_g,
+            "co2_comp_g": co2_comp_virtual,  # 注意: train_loss 和 train_acc 是基于它自己的 partition 计算的
+            "sim_cpu_freq": self.cpu_freq_hz, # 记录一下当前使用的频率，方便debug
             "train_loss": float(train_loss),
             "train_acc": float(train_acc),
             "server_round": server_round,
