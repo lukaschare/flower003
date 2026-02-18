@@ -1,0 +1,29 @@
+{
+  "run_id": "20260217_233456",
+  "cfg": {
+    "map_size_m": 4000.0,
+    "num_vehicles": 100,
+    "rsu_x_m": 2000.0,
+    "rsu_y_m": 2000.0,
+    "rsu_radius_m": 3000.0,
+    "rounds": 10,
+    "clients_per_round": 10,
+    "deadline_s": 25.0,
+    "model_down_bytes": 2000000,
+    "model_up_bytes": 2000000,
+    "ci_g_per_kwh": 200.0,
+    "p_rx_w": 1.0,
+    "p_tx_w": 1.5,
+    "seed": 42,
+    "out_dir": "outputs",
+    "veins_mode": "rpc",
+    "veins_host": "172.17.0.1",
+    "veins_port": 10001,
+    "dataset": "cifar10",
+    "data_dir": "/app/data",
+    "dataset_train_size": 50000,
+    "partition_scheme": "dirichlet",
+    "partition_path": "",
+    "dirichlet_alpha": 0.3
+  }
+}
