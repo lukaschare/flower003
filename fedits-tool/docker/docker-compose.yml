@@ -61,6 +61,11 @@ services:
       ELECTRICITYMAPS_TOKEN: "eyEFSfkLXrarj0rSMNRn"  # 建议加上引号，防止Token里有特殊字符
       ELECTRICITYMAPS_ZONE: ES
       CI_CACHE_S: 300
+
+      DATASET: fashionmnist
+      DATASET_TRAIN_SIZE: 60000  # fashionmnist 训练集大小是6万
+      # cifar10=50000 / fashionmnist=60000
+      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
       
 
   fl_server:
@@ -75,6 +80,9 @@ services:
       SERVER_ADDR: 0.0.0.0:8080
       ROUNDS: 10
       ORCH_URL: http://orchestrator:7070
+
+      DATASET: fashionmnist
+      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
 
     volumes:
       # - ../outputs:/app/outputs:ro
@@ -92,6 +100,9 @@ services:
       P_COMP_W: 18
       CI_G_PER_KWH: 153.0
       SLEEP_SCALE: 0.10
+
+      DATASET: fashionmnist
+      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
 
       # DATASET: cifar10
       # DATA_DIR: /app/data

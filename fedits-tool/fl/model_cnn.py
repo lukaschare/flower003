@@ -23,6 +23,36 @@ class SimpleCifarCNN(nn.Module):
         x = F.relu(self.fc1(x))
         return self.fc2(x)
 
+
+
+
+class SimpleFashionMNISTCNN(nn.Module):
+    """Tiny CNN for FashionMNIST (1x28x28)."""
+    def __init__(self, num_classes: int = 10) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        # 28x28 -> 14x14 -> 7x7
+        self.fc1 = nn.Linear(64 * 7 * 7, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+def build_model(dataset: str) -> nn.Module:
+    """根据数据集名称动态返回对应的模型"""
+    d = (dataset or "").lower()
+    if d in ("fashionmnist", "fashion-mnist"):
+        return SimpleFashionMNISTCNN()
+    if d in ("cifar10",):
+        return SimpleCifarCNN()
+    raise ValueError(f"Unknown dataset={dataset}")
+
 def get_ndarrays(model: nn.Module) -> List[np.ndarray]:
     return [p.detach().cpu().numpy() for _, p in model.state_dict().items()]
 
@@ -40,3 +70,5 @@ def l2_norm(params: List[np.ndarray]) -> float:
     for a in params:
         s += float((a.astype(np.float64) ** 2).sum())
     return float(s ** 0.5)
+
+

@@ -80,6 +80,16 @@ def _load_cifar10_train_labels(data_dir: str) -> np.ndarray:
     # torchvision CIFAR10 has `targets` as list[int]
     return np.asarray(ds.targets, dtype=np.int64)
 
+def _load_fashionmnist_train_labels(data_dir: str) -> np.ndarray:
+    import torchvision
+    import torchvision.transforms as T
+    ds = torchvision.datasets.FashionMNIST(
+        root=data_dir,
+        train=True,
+        download=True,
+        transform=T.ToTensor(),
+    )
+    return np.asarray(ds.targets, dtype=np.int64)
 
 def ensure_dirichlet_partitions(
     path: str,
@@ -108,13 +118,22 @@ def ensure_dirichlet_partitions(
         ):
             return obj
 
-    if dataset.lower() != "cifar10":
-        raise ValueError(f"ensure_dirichlet_partitions currently supports dataset=cifar10 only, got {dataset}")
+    # if dataset.lower() != "cifar10":
+    #     raise ValueError(f"ensure_dirichlet_partitions currently supports dataset=cifar10 only, got {dataset}")
+        # labels = _load_cifar10_train_labels(data_dir)
+    
+    d = dataset.lower()
+    if d == "cifar10":
+        labels = _load_cifar10_train_labels(data_dir)
+    elif d in ("fashionmnist", "fashion-mnist"):
+        labels = _load_fashionmnist_train_labels(data_dir)
+    else:
+        raise ValueError(f"ensure_dirichlet_partitions supports cifar10/fashionmnist only, got {dataset}")
 
-    labels = _load_cifar10_train_labels(data_dir)
+
     if int(n_train) != len(labels):
         # keep it strict so your meta always matches the real dataset length
-        raise ValueError(f"n_train={n_train} but CIFAR-10 train labels len={len(labels)}")
+        raise ValueError(f"n_train={n_train} but dataset labels len={len(labels)}")
 
     n_classes = int(labels.max()) + 1
     rng = np.random.default_rng(int(seed))

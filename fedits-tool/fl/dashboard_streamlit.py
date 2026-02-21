@@ -166,13 +166,29 @@ with tab_overview:
         # if not df_round.empty and {"round", "eval_loss"}.issubset(df_round.columns):
         #     plot_line(df_round, "round", "eval_loss", "Eval loss")
         
-        if not df_round.empty and {"round", "train_acc"}.issubset(df_round.columns):
-            plot_line(df_round, "round", "train_acc", "Train accuracy")
+        # if not df_round.empty and {"round", "train_acc"}.issubset(df_round.columns):
+        #     plot_line(df_round, "round", "train_acc", "Train accuracy")
+        # elif not df_round.empty and {"round", "agg_scalar"}.issubset(df_round.columns):
+        #     plot_line(df_round, "round", "agg_scalar", "Agg scalar (proxy)")
+
+        # if not df_round.empty and {"round", "train_loss"}.issubset(df_round.columns):
+        #     plot_line(df_round, "round", "train_loss", "Train loss")
+
+        # if not df_server.empty and {"round", "dropout_rate"}.issubset(df_server.columns):
+        #     plot_line(df_server, "round", "dropout_rate", "Dropout rate")
+
+        #
+        if not df_round.empty and {"round", "val_acc"}.issubset(df_round.columns):
+            plot_line(df_round, "round", "val_acc", "Validation Accuracy")
+        elif not df_round.empty and {"round", "train_acc"}.issubset(df_round.columns):
+            plot_line(df_round, "round", "train_acc", "Train Accuracy")
         elif not df_round.empty and {"round", "agg_scalar"}.issubset(df_round.columns):
             plot_line(df_round, "round", "agg_scalar", "Agg scalar (proxy)")
 
-        if not df_round.empty and {"round", "train_loss"}.issubset(df_round.columns):
-            plot_line(df_round, "round", "train_loss", "Train loss")
+        if not df_round.empty and {"round", "val_loss"}.issubset(df_round.columns):
+            plot_line(df_round, "round", "val_loss", "Validation Loss")
+        elif not df_round.empty and {"round", "train_loss"}.issubset(df_round.columns):
+            plot_line(df_round, "round", "train_loss", "Train Loss")
 
         if not df_server.empty and {"round", "dropout_rate"}.issubset(df_server.columns):
             plot_line(df_server, "round", "dropout_rate", "Dropout rate")
