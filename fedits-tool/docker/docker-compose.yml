@@ -22,7 +22,7 @@ services:
       OUT_DIR: outputs
       PYTHONPATH: /app   # <--- 注意：这里要用冒号 : 并且后面有个空格
 
-      PARTITION_SCHEME: dirichlet   # 或 non-iid
+      PARTITION_SCHEME: dirichlet
       DIRICHLET_ALPHA: 0.3
       DATA_DIR: /app/data
 
@@ -33,7 +33,7 @@ services:
       VEINS_PORT: 10001
 
       # scenario params (must match your Veins/SUMO)
-      MAP_SIZE_M: 4000
+      MAP_SIZE_M: 2500
       NUM_VEH: 100
 
       # RSU_X_M: 2000
@@ -41,12 +41,12 @@ services:
       # RSU_R_M: 3000
 
       # RSU 坐标必须与 omnetpp.ini 中的 *.rsu[0].mobility.x/y 一致
-      RSU_X_M: 1250          # 原来是 2000 -> 改为 1250
-      RSU_Y_M: 1250          # 原来是 2000 -> 改为 1250
-      RSU_R_M: 500           # 原来是 3000 -> 改为 500, RSU 逻辑半径，建议与你的预期逻辑保持一致
+      RSU_X_M: 1250
+      RSU_Y_M: 1250
+      RSU_R_M: 2000
 
       # FL params
-      ROUNDS: 10
+      ROUNDS: 30
       M: 10
       DEADLINE_S: 25
       MODEL_DOWN_BYTES: 2000000
@@ -62,8 +62,12 @@ services:
       ELECTRICITYMAPS_ZONE: ES
       CI_CACHE_S: 300
 
-      DATASET: fashionmnist
-      DATASET_TRAIN_SIZE: 60000  # fashionmnist 训练集大小是6万
+      # DATASET: fashionmnist
+      # DATASET_TRAIN_SIZE: 60000  # fashionmnist 训练集大小是6万
+
+      DATASET: cifar10
+      DATASET_TRAIN_SIZE: 50000
+
       # cifar10=50000 / fashionmnist=60000
       ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
       
@@ -78,10 +82,13 @@ services:
       - "8080:8080"
     environment:
       SERVER_ADDR: 0.0.0.0:8080
-      ROUNDS: 10
+      ROUNDS: 30
       ORCH_URL: http://orchestrator:7070
+      MIN_AVAILABLE_CLIENTS: 1
+      MIN_FIT_CLIENTS: 1
 
-      DATASET: fashionmnist
+      # DATASET: fashionmnist
+      DATASET: cifar10
       ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
 
     volumes:
@@ -101,7 +108,8 @@ services:
       CI_G_PER_KWH: 153.0
       SLEEP_SCALE: 0.10
 
-      DATASET: fashionmnist
+      # DATASET: fashionmnist
+      DATASET: cifar10
       ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
 
       # DATASET: cifar10
