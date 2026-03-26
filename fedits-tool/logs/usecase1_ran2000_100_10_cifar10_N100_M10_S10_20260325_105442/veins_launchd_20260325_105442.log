@@ -1,0 +1,26 @@
+Logging to /tmp/sumo-launchd.log
+Listening on port 9999
+Connection from 127.0.0.1 on port 39230
+Handling connection from 127.0.0.1 on port 39230
+Got TraCI message of length 2
+Got TraCI command of length 1
+Got TraCI command 0x0
+Got CMD_GETVERSION
+Got TraCI message of length 297
+Got TraCI command of length 292
+Got TraCI command 0x75
+Got CMD_FILE_SEND for "b'sumo-launchd.launch.xml'"
+Got CMD_FILE_SEND with data "b'<launch>\n  <copy file="erlangen.net.xml"/>\n  <copy file="erlangen.rou.xml"/>\n  <copy file="erlangen.poly.xml"/>\n  <copy file="erlangen.sumo.cfg" type="config"/>\n  <basedir path="/home/veins/src/veins/examples/fedits_veins_rsu/"/>\n  <seed value="0"/>\n</launch>\n'"
+Creating temporary directory...
+Temporary dir is /tmp/sumo-launchd-tmp-ho142wez
+Base dir is /home/veins/src/veins/examples/fedits_veins_rsu/
+Seed is 0
+Finding free port number...
+Claiming lock on port
+...found port 37047
+Starting SUMO (sumo -c erlangen.sumo.cfg) on port 37047, seed 0
+Connecting to SUMO (sumo -c erlangen.sumo.cfg) on port 37047 (try 1)
+Error ([Errno 111] Connection refused)
+Connecting to SUMO (sumo -c erlangen.sumo.cfg) on port 37047 (try 2)
+Releasing lock on port
+Starting proxy mode
