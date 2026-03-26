@@ -32,7 +32,7 @@ We provide a one-click setup script to fully automate the deployment process on 
 
 **Step 1:** Clone the repository to your home directory:
 ```bash
-cd ~ git clone [https://github.com/lukaschare/FedITS-Tool.git](https://github.com/lukaschare/FedITS-Tool.git)
+cd ~ && git clone https://github.com/lukaschare/FedITS-Tool.git
 cd FedITS-Tool
 ```
 
