@@ -195,7 +195,7 @@ if [[ -z "$MIN_FIT_CLIENTS" ]]; then
 fi
 
 
-# 将路径一分为二：TOOL_ROOT 负责 Docker/看板，SIM_ROOT 负责 Veins 仿真
+# Split the path into two parts: TOOL_ROOT is responsible for Docker/dashboard, and SIM_ROOT is responsible for Veins simulation
 TOOL_ROOT="$PROJECT_ROOT"
 SIM_ROOT="/home/veins/src/veins/examples/fedits_veins_rsu"
 
