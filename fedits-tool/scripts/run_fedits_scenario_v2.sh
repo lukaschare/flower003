@@ -223,6 +223,38 @@ LOG_DIR="$LOGS_ROOT/$RUN_NAME"
 LAUNCHER_DIR="$LOG_DIR/launchers"
 STATE_FILE="$STATE_DIR/current_run.env"
 
+
+# ==========================================
+# [New Addition] Pre-download datasets to avoid download conflicts caused by concurrent operations of multiple containers
+# ==========================================
+echo ">>> [Pre-flight Check] Verifying and downloading dataset: $DATASET ..."
+python3 -c "
+import os
+import sys
+
+# Try to import torchvision, and display a friendly prompt if it is not installed on the host machine
+try:
+    import torchvision
+except ImportError:
+    print('[warn] torchvision not found on host. Make sure to run pip install torchvision if data is missing.')
+    sys.exit(0)
+
+data_dir = os.path.join('$PROJECT_ROOT', 'data')
+os.makedirs(data_dir, exist_ok=True)
+
+dataset_name = '$DATASET'.lower()
+if dataset_name == 'cifar10':
+    print('Checking CIFAR10 in', data_dir)
+    torchvision.datasets.CIFAR10(root=data_dir, download=True)
+elif dataset_name == 'fashionmnist':
+    print('Checking FashionMNIST in', data_dir)
+    torchvision.datasets.FashionMNIST(root=data_dir, download=True)
+else:
+    print(f'[warn] Unknown dataset {dataset_name}, skipping pre-download.')
+"
+echo ">>> Dataset check complete."
+# ==========================================
+
 mkdir -p "$LOG_DIR" "$LAUNCHER_DIR" "$STATE_DIR"
 
 for f in "$COMPOSE_FILE" "$OMNETPP_INI" "$ROUTE_FILE" "$VEINS_BIN"; do
