@@ -223,34 +223,36 @@ LOG_DIR="$LOGS_ROOT/$RUN_NAME"
 LAUNCHER_DIR="$LOG_DIR/launchers"
 STATE_FILE="$STATE_DIR/current_run.env"
 
-
 # ==========================================
 # [New Addition] Pre-download datasets to avoid download conflicts caused by concurrent operations of multiple containers
 # ==========================================
-echo ">>> [Pre-flight Check] Verifying and downloading dataset: $DATASET ..."
+echo ">>> [Pre-flight Check] Verifying environment and dataset: $DATASET ..."
+
+# 1. Automatically detect and install torchvision (if it does not exist)
+if ! python3 -c "import torchvision" &> /dev/null; then
+    echo ">>> [Auto-Install] 'torchvision' not found. Installing it automatically..."
+    # It is recommended to use python3 -m pip install --user to avoid system permission issues
+    python3 -m pip install torchvision --user || pip3 install torchvision
+fi
+
+# 2. Call Python to download the dataset (torchvision is definitely available at this time)
 python3 -c "
 import os
 import sys
-
-# Try to import torchvision, and display a friendly prompt if it is not installed on the host machine
-try:
-    import torchvision
-except ImportError:
-    print('[warn] torchvision not found on host. Make sure to run pip install torchvision if data is missing.')
-    sys.exit(0)
+import torchvision
 
 data_dir = os.path.join('$PROJECT_ROOT', 'data')
 os.makedirs(data_dir, exist_ok=True)
 
 dataset_name = '$DATASET'.lower()
 if dataset_name == 'cifar10':
-    print('Checking CIFAR10 in', data_dir)
+    print('>>> Checking CIFAR10 in', data_dir)
     torchvision.datasets.CIFAR10(root=data_dir, download=True)
 elif dataset_name == 'fashionmnist':
-    print('Checking FashionMNIST in', data_dir)
+    print('>>> Checking FashionMNIST in', data_dir)
     torchvision.datasets.FashionMNIST(root=data_dir, download=True)
 else:
-    print(f'[warn] Unknown dataset {dataset_name}, skipping pre-download.')
+    print(f'>>> [warn] Unknown dataset {dataset_name}, skipping pre-download.')
 "
 echo ">>> Dataset check complete."
 # ==========================================
