@@ -19,18 +19,15 @@ TARGET_FEDITSTOOL="$HOME/fedits-tool"
 echo -e "\n>>> [1/5] Installing system-level dependencies (Docker, JSON, Python-venv)..."
 # ---------------------------------------------------------
 sudo apt-get update
-sudo apt-get install -y \
-    docker-ce docker-ce-cli containerd.io docker-compose-plugin \
-    nlohmann-json3-dev \
-    python3.9-venv
+sudo apt-get install -y curl nlohmann-json3-dev python3.9-venv
 
-# Automatically add the current user to the docker group
-if ! groups | grep -q "\bdocker\b"; then
-    echo ">>> Adding current user ($USER) to the 'docker' group..."
-    sudo usermod -aG docker "$USER"
-    NEED_RELOGIN=1
+if ! command -v docker &> /dev/null; then
+    echo ">>> Installing Docker CE from official Docker repositories..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    rm get-docker.sh
 else
-    NEED_RELOGIN=0
+    echo ">>> Docker is already installed, skipping..."
 fi
 
 # ---------------------------------------------------------
