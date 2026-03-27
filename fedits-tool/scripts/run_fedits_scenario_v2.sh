@@ -224,18 +224,22 @@ LAUNCHER_DIR="$LOG_DIR/launchers"
 STATE_FILE="$STATE_DIR/current_run.env"
 
 # ==========================================
-# [New Addition] Pre-download datasets to avoid download conflicts caused by concurrent operations of multiple containers
+# [NEW] Pre-download dataset to prevent download conflicts 
+# across multiple concurrent containers (CPU Lightweight Version)
 # ==========================================
 echo ">>> [Pre-flight Check] Verifying environment and dataset: $DATASET ..."
 
-# 1. Automatically detect and install torchvision (if it does not exist)
+# 1. Automatically detect and install torchvision if missing
 if ! python3 -c "import torchvision" &> /dev/null; then
-    echo ">>> [Auto-Install] 'torchvision' not found. Installing it automatically..."
-    # It is recommended to use python3 -m pip install --user to avoid system permission issues
-    python3 -m pip install torchvision --user || pip3 install torchvision
+    echo ">>> [Auto-Install] 'torchvision' not found. Installing lightweight CPU version..."
+    
+    # Force installation from PyTorch's official CPU wheel index to avoid 
+    # downloading large GPU/CUDA libraries and preventing resource conflicts.
+    python3 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --user || \
+    pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 fi
 
-# 2. Call Python to download the dataset (torchvision is definitely available at this time)
+# 2. Invoke Python to download the dataset (torchvision is now guaranteed to be available)
 python3 -c "
 import os
 import sys
@@ -246,13 +250,13 @@ os.makedirs(data_dir, exist_ok=True)
 
 dataset_name = '$DATASET'.lower()
 if dataset_name == 'cifar10':
-    print('>>> Checking CIFAR10 in', data_dir)
+    print(f'>>> Checking CIFAR10 in {data_dir}')
     torchvision.datasets.CIFAR10(root=data_dir, download=True)
 elif dataset_name == 'fashionmnist':
-    print('>>> Checking FashionMNIST in', data_dir)
+    print(f'>>> Checking FashionMNIST in {data_dir}')
     torchvision.datasets.FashionMNIST(root=data_dir, download=True)
 else:
-    print(f'>>> [warn] Unknown dataset {dataset_name}, skipping pre-download.')
+    print(f'>>> [Warning] Unknown dataset \"{dataset_name}\", skipping pre-download.')
 "
 echo ">>> Dataset check complete."
 # ==========================================
