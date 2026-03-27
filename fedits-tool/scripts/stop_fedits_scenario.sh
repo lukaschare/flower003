@@ -68,3 +68,30 @@ if [[ "$PRUNE" == "1" ]]; then
 fi
 
 echo "[stop] done"
+
+# ==============================================================================
+# Automated Cleanup: Residual Processes & Port Release
+# ==============================================================================
+echo ">>> [Auto-Cleanup] Checking for and cleaning up residual Veins/SUMO processes..."
+
+# 1. Force kill potential residual processes by name (fails silently if none exist)
+killall -9 fedits_veins_rsu 2>/dev/null || true
+killall -9 opp_run 2>/dev/null || true
+killall -9 sumo sumo-gui 2>/dev/null || true
+
+# 2. Precisely find and terminate any process hogging port 10001 (Veins RPC)
+if command -v lsof >/dev/null 2>&1; then
+    PORT_PIDS=$(lsof -ti:10001)
+    if [ ! -z "$PORT_PIDS" ]; then
+        echo ">>> [Auto-Cleanup] Found process occupying port 10001 (PID: $PORT_PIDS). Terminating..."
+        kill -9 $PORT_PIDS 2>/dev/null || true
+    fi
+else
+    # Fallback to 'fuser' if 'lsof' is not installed
+    fuser -k -9 10001/tcp 2>/dev/null || true
+fi
+
+# Give the OS a brief moment to fully release the port at the kernel level
+sleep 1 
+echo ">>> [Auto-Cleanup] Port environment is cleared and ready!"
+# ==============================================================================
