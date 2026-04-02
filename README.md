@@ -47,72 +47,367 @@ _(Note: The script will ask for your `sudo` password to install system packages 
 
 ---
 
+
 ## 4. Running the Simulation
 
-The framework is driven by the `run_fedits_scenario_v2.sh` script, which handles launching SUMO, Veins, the Dockerized FL nodes, and the Dashboard concurrently.
+The recommended way to launch FedITS is through a **scenario `.env` file**.
+This keeps the experiment configuration reproducible and allows the launcher to automatically propagate the main parameters (such as `NUM_VEH`, `M`, `ROUNDS`, `RSU_X`, `RSU_Y`, `RSU_R`, `MAP_SIZE`, and SUMO flow settings) to the Docker stack, OMNeT++ configuration, and SUMO route file in one place. 
 
-Navigate to the deployed orchestrator directory:
+First, move to the project root:
 
-```Bash
+```bash
 cd ~/fedits-tool
 ```
 
-## Option A: GUI Mode (Recommended for observation)
+### Recommended scenario-based startup
 
-This mode opens separate terminal windows for SUMO-GUI, Veins, Docker Compose, and the Streamlit Dashboard.
+You can prepare one scenario file per use case, for example:
 
-```Bash
-./run_fedits_scenario_v2.sh gui
+* `scenarios/usecase1_ran2000_100_10.env`
+* `scenarios/usecase2_ran500_100_10.env`
+* `scenarios/usecase3_ran500_500_50.env`   
+
+### Option A: GUI mode with SUMO visualization
+
+This mode is best when you want to **observe the mobility process visually**.
+It opens terminal windows for SUMO, Veins, Docker Compose, and optionally the Streamlit dashboard. In GUI mode, the launcher defaults to `sumo-gui`. 
+
+```bash
+/home/veins/fedits-tool/scripts/run_fedits_scenario_v2.sh gui \
+  --project-root /home/veins/fedits-tool \
+  --scenario /home/veins/fedits-tool/scenarios/usecase2_ran500_100_10.env \
+  --sudo-docker
 ```
 
-## Option B: Headless Mode (Recommended for large experiments)
+### Option B: GUI mode without showing the SUMO map window
 
-Runs everything in the background without graphical interfaces.
+This mode is useful when you still want the **multi-window launcher experience** (Veins, Docker, dashboard logs in separate terminals), but do **not** want the SUMO graphical map to be displayed.
+The key is to keep `gui` mode while explicitly switching SUMO to non-graphical mode via `--sumo sumo`. 
 
-```Bash
-./run_fedits_scenario_v2.sh headless \
-    --num-veh 100 \
-    --m 10 \
-    --rounds 10 \
-    --scale 10 \
-    --dataset cifar10 \
-    --partition-scheme dirichlet \
-    --dirichlet-alpha 0.3
+```bash
+/home/veins/fedits-tool/scripts/run_fedits_scenario_v2.sh gui \
+  --project-root /home/veins/fedits-tool \
+  --scenario /home/veins/fedits-tool/scenarios/usecase2_ran500_100_10.env \
+  --sumo sumo \
+  --sudo-docker
 ```
 
-## Option C: Using a Scenario Env File
+### Option C: Fully headless mode
 
-You can define your variables in an `.env` style file instead of passing long command-line arguments:
+This mode is recommended for **larger experiments**, long runs, or batch execution.
+SUMO launchd and Veins run in the background, while Docker Compose runs in the current shell. 
 
-```Bash
-./run_fedits_scenario_v2.sh headless --scenario scenarios/my_experiment.env
+```bash
+/home/veins/fedits-tool/scripts/run_fedits_scenario_v2.sh headless \
+  --project-root /home/veins/fedits-tool \
+  --scenario /home/veins/fedits-tool/scenarios/usecase2_ran500_100_10.env \
+  --sudo-docker
 ```
+
+### Stopping a run
+
+To stop the current experiment cleanly:
+
+```bash
+/home/veins/fedits-tool/scripts/stop_fedits_scenario.sh \
+  --project-root /home/veins/fedits-tool \
+  --sudo-docker
+```
+
+`--sudo-docker` forces the launcher to use `sudo docker`, which helps avoid permission issues when starting or stopping the Docker-based FL services.
+
+The stop script shuts down Docker Compose and terminates the related host-side Veins, SUMO, and Streamlit processes. 
 
 ---
 
 ## 5. Real-Time Dashboard 📊
 
-Once the simulation starts, the Streamlit dashboard will automatically become available at:
+When the dashboard is enabled, Streamlit becomes available at:
 
-👉 **http://localhost:8501**
+👉 **[http://localhost:8501](http://localhost:8501)**
 
-The dashboard provides insights into:
+The dashboard is designed around three tabs:
 
-- **Overview:** Global model validation accuracy, training loss, and aggregator scalar.
-    
-- **Drop Analysis:** Categorized dropout tracking (`out_of_map`, `out_of_range`, `bad_signal_or_deadline`).
-    
-- **Carbon Footprint:** Estimated Carbon Emissions (gCO2e) tracking for computation and communication per round.
-    
+### 5.1 Overview
+
+The **Overview** tab provides a compact summary of the current run, including:
+
+* validation or training accuracy over rounds,
+* validation or training loss over rounds,
+* dropout rate,
+* per-round carbon metrics (`committed`, `dropped`, and `total`),
+* latest rows from `clients_round.csv` and `server_round.csv`. 
+
+<!-- Replace the placeholder below with your screenshot -->
+
+![Overview tab screenshot](docs/images/dashboard_overview.png)
+
+### 5.2 Drop Analysis
+
+The **Drop analysis** tab helps diagnose why selected clients fail to contribute updates.
+It groups dropped clients into three coarse categories:
+
+* `out_of_map`
+* `out_of_range`
+* `bad_signal_or_deadline`
+
+It also provides per-round stacked statistics and raw reason mappings, which are particularly useful for analyzing mobility-induced failures and deadline misses. 
+
+<!-- Replace the placeholder below with your screenshot -->
+
+![Drop analysis tab screenshot](docs/images/dashboard_drop_analysis.png)
+
+### 5.3 Events
+
+The **Events** tab displays the content of `events.jsonl`, which records round-level execution events emitted by the FL server.
+This tab is useful for inspecting the chronological orchestration flow, including client selection, reception, verdict, aggregation, and round completion.  
+
+<!-- Replace the placeholder below with your screenshot -->
+
+![Events tab screenshot](docs/images/dashboard_events.png)
 
 ---
 
 ## 6. Repository Structure
 
-- `setup_fedits.sh` - Automated deployment script.
-- `fedits-tool/docker/` - `docker-compose.yml` for deploying the Flower Server and Clients.
-- `fedits-tool/orchestrator/` - The control plane (`orch_core.py`, `orch_service.py`) that bridges Veins and Flower.
-- `fedits-tool/fl/` - Contains the custom FL logic (`client.py`, `server.py`) and the `dashboard_streamlit.py`.
-- `fedits_veins_rsu/` - The C++ implementation of the RSU Control Server and vehicle communication logic for OMNeT++.
+* `setup_fedits_eng.sh` - Automated deployment scripts.
+* `docker/` - Docker Compose and Dockerfiles for orchestrator, Flower server, and Flower clients.
+* `fedits-tool/orchestrator/` - Control plane logic (`orch_core.py`, `orch_service.py`) that coordinates Veins and Flower.
+* `fedits-tool/fl/` - Flower server/client logic and the Streamlit dashboard.
+* `fedits_veins_rsu/` - Veins / OMNeT++ side implementation, including the `ControlServer`.
+* `scenarios/` - Scenario `.env` files for reproducible experiment launching.
+* `outputs/` - Structured experiment outputs generated during runs.
+* `logs/` - Launcher and runtime logs for each started scenario.   
 
 ---
+
+
+## 7. Logs and Recorded Outputs 📝
+
+FedITS records two complementary classes of outputs:
+**(1) structured experiment results** for analysis, and **(2) launcher/runtime logs** for debugging and reproducibility.
+
+### 7.1 Structured experiment outputs
+
+For each run, the orchestrator and FL server write structured artifacts under:
+
+```bash
+outputs/runs/<run_id>/
+```
+
+Typical files include:
+
+* `config_snapshot.json`
+  Snapshot of the orchestrator-side configuration used for that run.
+
+* `clients_round.csv`
+  Per-client, per-round trace containing selection outcome, commit/drop status, timing, link indicators, and energy/carbon fields.
+
+* `server_round.csv`
+  Per-round server summary including selected/committed counts, dropout rate, global model norm, and carbon totals.
+
+* `round_metrics.csv`
+  Training-side aggregated metrics such as selected/received/kept/dropped counts, aggregation scalar, train/validation loss, and accuracy.
+
+* `events.jsonl`
+  Chronological round events emitted by the FL server, useful for debugging orchestration flow.
+
+* `manifest.json`
+  Run-level metadata written by the Flower server logger.  
+
+In addition, dataset partition files are generated under:
+
+```bash
+outputs/partitions/
+```
+
+These partition files store IID or Dirichlet-based client splits and make repeated experiments easier to reproduce.  
+
+### 7.2 Launcher and runtime logs
+
+Each scenario launch also creates a run folder under:
+
+```bash
+logs/<RUN_NAME>/
+```
+
+Typical files include:
+
+* `run_info.txt`
+  Human-readable summary of the launch configuration.
+
+* `veins_launchd_<timestamp>.log`
+  Output from `veins_launchd`.
+
+* `veins_run_<timestamp>.log`
+  Runtime log from the Veins / OMNeT++ process.
+
+* `docker_<timestamp>.log`
+  Combined Docker Compose output.
+
+* `dashboard_<timestamp>.log`
+  Streamlit dashboard log, when enabled.
+
+* `docker-compose.yml.bak`
+  Backup of the Docker Compose file before scenario patching.
+
+* `omnetpp.ini.bak`
+  Backup of the OMNeT++ configuration before scenario patching.
+
+* `erlangen.rou.xml.bak`
+  Backup of the SUMO route file before scenario patching.
+
+* `launchers/`
+  Helper shell launchers generated for GUI mode. 
+
+### 7.3 Why both output locations matter
+
+A useful rule of thumb is:
+
+* use `outputs/runs/<run_id>/` for **plots, metrics, and paper figures**;
+* use `logs/<RUN_NAME>/` for **debugging failed launches, port conflicts, or integration issues**.   
+
+---
+
+## 8. Troubleshooting and Practical Notes 🔧
+
+This section summarizes common issues encountered when changing scenario parameters during experiments.
+
+### 8.1 No clients are selected or no training starts
+
+**Symptoms**
+
+* a round starts, but `selected=0`;
+* no client containers actually train;
+* the dashboard remains mostly empty.
+
+**Typical causes**
+
+* too few vehicles are inside RSU coverage at the round start;
+* `RSU_R` is too small for the current mobility setting;
+* `SUMO_FLOW_NUMBER` is too low or `SUMO_FLOW_PERIOD` is too large;
+* `MIN_AVAILABLE_CLIENTS` or `MIN_FIT_CLIENTS` is set too high relative to `SCALE`.  
+
+**What to check**
+
+* verify the scenario file first;
+* inspect `server_round.csv` and `events.jsonl`;
+* in GUI mode, confirm whether vehicles actually pass through the RSU region.
+
+### 8.2 Many clients drop with `out_of_range` or `left_map`
+
+**Symptoms**
+
+* clients are selected, but many fail before commit;
+* the Drop analysis tab is dominated by mobility-related failures.
+
+**Typical causes**
+
+* RSU coverage is too small;
+* the model payload is too large for the available contact duration;
+* the round deadline is too strict;
+* the traffic pattern causes vehicles to leave coverage quickly.  
+
+**Possible fixes**
+
+* increase `RSU_R`;
+* increase `DEADLINE_S`;
+* reduce `MODEL_DOWN_BYTES` / `MODEL_UP_BYTES`;
+* increase traffic density via `SUMO_FLOW_NUMBER` or decrease `SUMO_FLOW_PERIOD`.
+
+### 8.3 SUMO GUI does not appear
+
+**Typical cause**
+
+* you launched with `--sumo sumo`, which is intentionally non-graphical.
+
+**Fix**
+Use:
+
+```bash
+./run_fedits_scenario_v2.sh gui --sumo sumo-gui --scenario scenarios/usecase1_ran2000_100_10.env
+```
+
+In plain `gui` mode, `sumo-gui` is already the default unless you override it. 
+
+### 8.4 Dashboard opens but shows little or no data
+
+**Typical causes**
+
+* the first round has not finished yet;
+* dashboard was disabled;
+* the run produced no structured output due to an earlier startup issue.
+
+**What to check**
+
+* confirm that `ENABLE_DASHBOARD=1` or `--dashboard` is enabled when needed;
+* verify that `outputs/runs/<run_id>/` exists;
+* inspect `round_metrics.csv`, `clients_round.csv`, and `server_round.csv`.  
+
+### 8.5 Docker permission errors
+
+**Symptoms**
+
+* `docker compose` fails with permission-related messages.
+
+**Fixes**
+
+* rerun with `--sudo-docker`, or
+* add your user to the Docker group and re-login.  
+
+### 8.6 Port conflicts
+
+FedITS uses several ports across the stack, including:
+
+* `7070` for the orchestrator service,
+* `8080` for the Flower server,
+* `8501` for Streamlit,
+* `10001` for the Veins ControlServer,
+* `9999` for SUMO TraCI in the Veins setup.   
+
+If a new run fails immediately, stop the previous one first:
+
+```bash
+./stop_fedits_scenario.sh
+```
+
+### 8.7 Large-scale runs become slow or unstable
+
+**Typical causes**
+
+* too many Docker clients started at once;
+* insufficient RAM or CPU for the chosen `SCALE`, `M`, and dataset/model combination;
+* GUI mode adds extra overhead during large experiments.
+
+**Practical suggestions**
+
+* prefer `headless` mode for scale experiments;
+* reduce `SCALE` first if you only need functional validation;
+* keep GUI mode for demonstration runs, not for stress tests. 
+
+### 8.8 Manual file edits can create inconsistent configurations
+
+The scenario launcher is designed to keep Docker, OMNeT++, and SUMO aligned automatically by patching the relevant files before launch.
+If you manually edit those files afterward, make sure the following stay consistent:
+
+* `NUM_VEH`
+* `M`
+* `ROUNDS`
+* `RSU_X`, `RSU_Y`, `RSU_R`
+* `MAP_SIZE`
+* SUMO flow number and period. 
+
+Otherwise, you may observe puzzling behavior such as no in-range vehicles, mismatched client counts, or unexpected drop patterns.
+
+---
+
+## 9. Citation / Acknowledgement
+
+If you use this framework in your research, please cite the corresponding paper and acknowledge the software stack built on **Flower**, **SUMO**, **OMNeT++**, and **Veins**.
+
+<!-- Add BibTeX entry here once the paper metadata is finalized -->
+
+
+
+
+
