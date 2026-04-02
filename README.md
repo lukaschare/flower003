@@ -138,10 +138,9 @@ The **Overview** tab provides a compact summary of the current run, including:
 * per-round carbon metrics (`committed`, `dropped`, and `total`),
 * latest rows from `clients_round.csv` and `server_round.csv`. 
 
-<!-- Replace the placeholder below with your screenshot -->
 
-![Overview tab screenshot](docs/images/dashboard_overview.png)
-
+![Overview tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_01_01.png)
+![Overview tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_01_02.png)
 ### 5.2 Drop Analysis
 
 The **Drop analysis** tab helps diagnose why selected clients fail to contribute updates.
@@ -153,18 +152,16 @@ It groups dropped clients into three coarse categories:
 
 It also provides per-round stacked statistics and raw reason mappings, which are particularly useful for analyzing mobility-induced failures and deadline misses. 
 
-<!-- Replace the placeholder below with your screenshot -->
 
-![Drop analysis tab screenshot](docs/images/dashboard_drop_analysis.png)
+![Drop analysis tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_02.png)
 
 ### 5.3 Events
 
 The **Events** tab displays the content of `events.jsonl`, which records round-level execution events emitted by the FL server.
 This tab is useful for inspecting the chronological orchestration flow, including client selection, reception, verdict, aggregation, and round completion.  
 
-<!-- Replace the placeholder below with your screenshot -->
 
-![Events tab screenshot](docs/images/dashboard_events.png)
+![Events tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_03.png)
 
 ---
 
