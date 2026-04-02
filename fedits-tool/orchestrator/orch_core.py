@@ -66,7 +66,6 @@ def normalize_drop_reason(raw: str) -> str:
     # 3) bad_signal / deadline / others
     return "bad_signal"
 
-# --- 请将这部分代码贴在文件的顶部区域（例如 normalize_drop_reason 后面） ---
 
 def reason_group(raw_reason: str) -> str:
     r = (raw_reason or "").strip().lower()
@@ -170,7 +169,7 @@ class OrchestratorConfig:
 
 
 
-# 3. 新增 Provider 类 (放在 OrchestratorConfig 后面，OrchestratorCore 前面)
+# 3. Add the Provider class (placed after OrchestratorConfig and before OrchestratorCore)
 class CarbonIntensityProvider:
     def __init__(self, cfg: OrchestratorConfig) -> None:
         self.mode = (cfg.ci_mode or "fixed").lower().strip()
@@ -185,16 +184,16 @@ class CarbonIntensityProvider:
         self._cache_ci: float = self.fixed_ci
 
     def get_ci_g_per_kwh(self) -> float:
-        # 如果不是动态模式或没 Token，直接返回固定值
+        # Return a fixed value directly if it is not in dynamic mode or there is no Token
         if self.mode != "electricitymaps" or not self.token:
             return self.fixed_ci
 
         now = time.time()
-        # 检查缓存
+        # Check Cache
         if self._cache_ts > 0 and (now - self._cache_ts) < self.cache_s:
             return float(self._cache_ci)
 
-        # 构造请求
+        # Construct the request
         params = {"zone": self.zone}
         url = f"{self.base_url}/v3/carbon-intensity/latest?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(
@@ -209,18 +208,18 @@ class CarbonIntensityProvider:
                     raise RuntimeError(f"HTTP {resp.status}")
                 data = json.loads(resp.read().decode("utf-8"))
             
-            # 提取数据
+            # Extract Data
             ci = float(data.get("carbonIntensity", self.fixed_ci))
             print(f"[orch-core] API Success: CI={ci}")
             
-            # 更新缓存
+            # Update Cache
             self._cache_ts = now
             self._cache_ci = ci
             return ci
             
         except Exception as e:
             print(f"[orch-core] WARN: CI API failed ({e}), fallback to fixed={self.fixed_ci}")
-            # 失败时也更新缓存时间，防止下一秒立刻重试卡死系统，而是等待 cache_s 后再试
+            # Update the cache expiration time even upon failure to prevent immediate retries in the next second from crashing the system; instead, wait for cache_s seconds before retrying.
             self._cache_ts = now
             self._cache_ci = self.fixed_ci
             return self.fixed_ci
@@ -683,7 +682,6 @@ class OrchestratorCore:
             #     drop_reason = ""
 
             
-            # ================= 替换从这里开始 =================
             # commit/drop semantics
             committed = 0
             drop_reason = ""
@@ -716,7 +714,6 @@ class OrchestratorCore:
                 co2_dropped += co2_total
                 drop_reason = normalize_drop_reason(drop_reason)
                 drop_group = reason_group(drop_reason)
-            # ================= 替换到这里结束 =================
             
 
             client_rows.append({
