@@ -4,23 +4,23 @@ services:
   orchestrator:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.server   # 复用镜像
+      dockerfile: docker/Dockerfile.server   # Reuse the image
     container_name: orchestrator
     # command: ["python", "-u", "orchestrator/orch_service.py"]
-    # 使用模块方式启动，自动解决包路径问题
+    # Start in module mode to automatically resolve package path issues
     command: ["python", "-u", "-m", "orchestrator.orch_service"]
     ports:
       - "7070:7070"
     
-    # ================= 必须新增这部分 =================
+    # ================= Add this section =================
     volumes:
-      # 意思是：把宿主机的 "../outputs" 目录 <---> 映射到容器里的 "/app/outputs"
+      # This means mapping the "../outputs" directory on the host machine to "/app/outputs" inside the container.
       - ../outputs:/app/outputs
       - ../data:/app/data
     # ================================================
     environment:
       OUT_DIR: outputs
-      PYTHONPATH: /app   # <--- 注意：这里要用冒号 : 并且后面有个空格
+      PYTHONPATH: /app   # <--- Note: A colon should be used here, followed by a space.
 
       PARTITION_SCHEME: dirichlet
       DIRICHLET_ALPHA: 0.3
@@ -40,7 +40,7 @@ services:
       # RSU_Y_M: 2000
       # RSU_R_M: 3000
 
-      # RSU 坐标必须与 omnetpp.ini 中的 *.rsu[0].mobility.x/y 一致
+      # The RSU coordinates must be consistent with *.rsu[0].mobility.x/y in omnetpp.ini
       RSU_X_M: 1250
       RSU_Y_M: 1250
       RSU_R_M: 2000
@@ -57,19 +57,19 @@ services:
       P_RX_W: 1.0
       P_TX_W: 1.5
 
-      CI_MODE: electricitymaps # fixed | electricitymaps 在这里指定,不需要在orch_core.py手动指定
-      ELECTRICITYMAPS_TOKEN: "eyEFSfkLXrarj0rSMNRn"  # 建议加上引号，防止Token里有特殊字符
+      CI_MODE: electricitymaps # fixed | electricitymaps Specify it here; there is no need to specify it manually in orch_core.py
+      ELECTRICITYMAPS_TOKEN: "eyEFSfkLXrarj0rSMNRn"  # It is recommended to add quotation marks to prevent special characters in the Token.
       ELECTRICITYMAPS_ZONE: ES
       CI_CACHE_S: 300
 
       # DATASET: fashionmnist
-      # DATASET_TRAIN_SIZE: 60000  # fashionmnist 训练集大小是6万
+      # DATASET_TRAIN_SIZE: 60000  # The size of the FashionMNIST training set is 60,000
 
       DATASET: cifar10
       DATASET_TRAIN_SIZE: 50000
 
       # cifar10=50000 / fashionmnist=60000
-      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
+      ALLOW_DOWNLOAD: 1          # It is recommended to enable this function to prevent the dataset from not being pre-downloaded in the container.
       
 
   fl_server:
@@ -89,7 +89,7 @@ services:
 
       # DATASET: fashionmnist
       DATASET: cifar10
-      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
+      ALLOW_DOWNLOAD: 1          # It is recommended to enable this function to prevent the dataset from not being pre-downloaded inside the container.
 
     volumes:
       # - ../outputs:/app/outputs:ro
@@ -110,7 +110,7 @@ services:
 
       # DATASET: fashionmnist
       DATASET: cifar10
-      ALLOW_DOWNLOAD: 1          # 建议开启，防止容器内没有预先下载数据集
+      ALLOW_DOWNLOAD: 1          # It is recommended to enable this function to prevent the dataset from not being pre-downloaded inside the container.
 
       # DATASET: cifar10
       # DATA_DIR: /app/data
