@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Subset
 import torchvision
 import torchvision.transforms as T
 
-from model_cnn import build_model  # 如果路径不对：按你的工程结构调整 import
+from model_cnn import build_model
 
 
 # -------------------------
@@ -139,8 +139,8 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
         self.ci_g_per_kwh = env_float("CI_G_PER_KWH", 153.0)
 
         self.epochs = env_int("EPOCHS", 1)
-        self.batch_size = env_int("BATCH_SIZE", 32) # CIFAR-10 上过大的 batch size 可能导致显存不足，默认设置为 32
-        self.lr = env_float("LR", 0.005) # CIFAR-10 上过大的学习率 可能导致训练不稳定，默认设置为 0.005
+        self.batch_size = env_int("BATCH_SIZE", 32) # An excessively large batch size on CIFAR-10 may result in insufficient video memory, and the default setting is 32.
+        self.lr = env_float("LR", 0.005) # An excessively large learning rate on CIFAR-10 may lead to unstable training, with the default setting being 0.005.
 
         self.data_dir = env_str("DATA_DIR", "/app/data")
         self._partition_cache: Dict[str, dict] = {}
@@ -151,7 +151,7 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
 
         # allow_download = (env_int("ALLOW_DOWNLOAD", 0) == 1)
         
-        # # 1. 训练集 Transform：带数据增强 + Normalize
+        # # 1. Training set Transform: with data augmentation + Normalize
         # transform_train = T.Compose([
         #     T.RandomCrop(32, padding=4),
         #     T.RandomHorizontalFlip(),
@@ -159,7 +159,7 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
         #     T.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         # ])
         
-        # # 2. 验证/评估集 Transform：仅 Normalize
+        # # 2. Validation/Evaluation Set Transform: Normalization only
         # transform_val = T.Compose([
         #     T.ToTensor(),
         #     T.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
@@ -173,7 +173,7 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
         # )
 
         
-        # --- 修改开始：动态加载模型和数据集 ---
+        # --- Dynamically load models and datasets ---
         self.dataset_name = env_str("DATASET", "cifar10").lower()
         self.model: nn.Module = build_model(self.dataset_name).to(self.device)
 
@@ -213,7 +213,6 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
             self.dataset_val = torchvision.datasets.CIFAR10(
                 root=self.data_dir, train=True, download=False, transform=transform_val
             )
-        # --- 修改结束 ---
 
 
         self.slot_id = derive_slot_id()
@@ -249,11 +248,11 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
         train_idx = shuffled_indices[:split_idx]
         val_idx = shuffled_indices[split_idx:]
 
-        # 训练过程 Loader (带增强)
+        # Training Process Loader (with augmentation)
         trainloader = DataLoader(Subset(self.dataset_train, train_idx), batch_size=self.batch_size, shuffle=True, num_workers=0)
-        # 训练集评估 Loader (无增强，保证评估稳定)
+        # Training Set Evaluation Loader (no augmentation to ensure stable evaluation)
         train_eval_loader = DataLoader(Subset(self.dataset_val, train_idx), batch_size=self.batch_size, shuffle=False, num_workers=0)
-        # 验证集评估 Loader (无增强)
+        # Validation Set Evaluation Loader (No Augmentation)
         valloader = DataLoader(Subset(self.dataset_val, val_idx), batch_size=self.batch_size, shuffle=False, num_workers=0)
         
         self._loader_cache[key] = (trainloader, train_eval_loader, valloader, len(train_idx), len(val_idx))
@@ -315,14 +314,14 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
                 loss.backward()
                 optimizer.step()
 
-        # 虚拟时间和能耗只根据 num_train 计算
+        # Virtual time and energy consumption are calculated only based on num_train
         total_cpu_cycles = self.epochs * num_train * self.cycles_per_sample
         t_train_virtual = total_cpu_cycles / self.cpu_freq_hz
         p_comp_virtual = self.kappa * (self.cpu_freq_hz ** 3)
         e_comp_virtual = p_comp_virtual * t_train_virtual
         co2_comp_virtual = joule_to_kwh(e_comp_virtual) * self.ci_g_per_kwh
 
-        # 使用无增强的 loader 评估
+        # Evaluate using the non-augmented loader
         train_loss, train_acc = eval_on_loader(self.model, train_eval_loader, self.device) if num_train > 0 else (None, None)
         val_loss, val_acc = eval_on_loader(self.model, valloader, self.device) if num_val > 0 else (None, None)
 
@@ -344,7 +343,7 @@ class Cifar10PartitionClient(fl.client.NumPyClient):
             "num_val": int(num_val),
         }
 
-        # 注意：返回给 Flower Server 的 weight 设置为 num_train，聚合才准确
+        # Note: Set the weight returned to the Flower Server to num_train for accurate aggregation.
         return get_params_from_model(self.model), int(num_train), metrics
 
     def evaluate(self, parameters: List[np.ndarray], config: Dict) -> Tuple[float, int, Dict]:
