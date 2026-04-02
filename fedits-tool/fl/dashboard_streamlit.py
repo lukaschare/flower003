@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh  # 添加这一行
+from streamlit_autorefresh import st_autorefresh
 
 try:
     import plotly.express as px
@@ -88,22 +88,16 @@ def safe_read_events(path: str, max_lines: int = 5000) -> pd.DataFrame:
 #         st.plotly_chart(px.line(df, x=x, y=y, markers=True, title=title), use_container_width=True)
 
 def plot_line(df: pd.DataFrame, x: str, y: str, title: str):
-    # 1. 检查数据
+
     if df.empty or x not in df.columns or y not in df.columns:
         st.info(f"Missing data for: {title}")
         return
 
-    # 2. 【关键修改】在画图前，强制显示标题
-    # 使用 st.subheader 或者 st.markdown("**" + title + "**") 都可以
     st.subheader(title)
 
-    # 3. 开始画图
     if px is None:
-        # st.line_chart 没有 title 参数，全靠上面的 st.subheader
         st.line_chart(df.set_index(x)[y], height=260)
     else:
-        # 如果是 Plotly，因为我们在上面已经打印了标题，这里就不要再传 title 参数了
-        # 否则会出现“头顶一个大标题，图里又一个小标题”的重复情况
         st.plotly_chart(px.line(df, x=x, y=y, markers=True), use_container_width=True)
 
 def plot_stacked_bar(df: pd.DataFrame, x: str, y: str, color: str, title: str):
@@ -133,7 +127,6 @@ with st.sidebar:
 
 if auto_refresh:
     # st.autorefresh(interval=refresh_s * 1000, key="autorefresh")
-    # 注意这里改成了 st_autorefresh
     st_autorefresh(interval=refresh_s * 1000, key="autorefresh")
 
 clients_csv = os.path.join(run_dir, "clients_round.csv")
