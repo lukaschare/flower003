@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-03-24T10:08:49",
+  "run_dir": "/app/outputs/runs/20260324_100849",
+  "server_address": "0.0.0.0:8080",
+  "num_rounds": 50,
+  "orch_url": "http://orchestrator:7070",
+  "wait_timeout": 60,
+  "min_fit_clients": 1,
+  "min_available_clients": 10
+}
