@@ -378,7 +378,7 @@ class ProxyOrchestratedFedAvg(fl.server.strategy.Strategy):
             except Exception as e:
                 self._log(f"[server] finalize (empty) failed: {e}")
             
-            # 关键修改：全参数传入
+            # Key modification: Pass all parameters
             self._log_round_metrics(
                 r=server_round,
                 selected=len(selected),
