@@ -2,17 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 第一步：仅仅拷贝 requirements.txt
+# Step 1: Only copy requirements.txt
 COPY requirements.txt .
 
-# 第二步：强制安装 CPU 版本的 PyTorch
+# Step 2: Force Install the CPU Version of PyTorch
 RUN pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu
 
-# 第三步：安装其余依赖
+# Step 3: Install the remaining dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 第四步：拷贝项目代码
+# Step 4: Copy the project code
 COPY . /app
 
-# Client 不需要 EXPOSE 8080，直接运行即可
+# The client does not need to EXPOSE 8080; it can run directly.
 CMD ["python", "-u", "fl/client.py"]
