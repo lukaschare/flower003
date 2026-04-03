@@ -1,7 +1,7 @@
 
 # FedITS: Federated Learning Orchestration in Vehicular Networks 🚗📡🤖
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Instant%20Veins%20%7C%20Linux-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.9+-blue.svg)
 
