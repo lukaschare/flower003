@@ -67,6 +67,9 @@ You can prepare one scenario file per use case, for example:
 * `scenarios/usecase2_ran500_100_10.env`
 * `scenarios/usecase3_ran500_500_50.env`   
 
+> **💡 Tip:** If the newly opened terminal window prompts you for a `sudo` password (e.g., when using `--sudo-docker`), simply type **`veins`** and press Enter to let the containers start.
+
+
 ### Option A: GUI mode with SUMO visualization
 
 This mode is best when you want to **observe the mobility process visually**.
@@ -79,7 +82,6 @@ It opens terminal windows for SUMO, Veins, Docker Compose, and optionally the St
   --sudo-docker
 ```
 
-> **💡 Tip:** If the newly opened terminal window prompts you for a `sudo` password (e.g., when using `--sudo-docker`), simply type **`veins`** and press Enter to let the containers start.
 
 ### Option B: GUI mode without showing the SUMO map window
 
