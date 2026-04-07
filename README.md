@@ -79,6 +79,8 @@ It opens terminal windows for SUMO, Veins, Docker Compose, and optionally the St
   --sudo-docker
 ```
 
+> **💡 Tip:** If the newly opened terminal window prompts you for a `sudo` password (e.g., when using `--sudo-docker`), simply type **`veins`** and press Enter to let the containers start.
+
 ### Option B: GUI mode without showing the SUMO map window
 
 This mode is useful when you still want the **multi-window launcher experience** (Veins, Docker, dashboard logs in separate terminals), but do **not** want the SUMO graphical map to be displayed.
