@@ -130,6 +130,9 @@ When the dashboard is enabled, Streamlit becomes available at:
 
 👉 **[http://localhost:8501](http://localhost:8501)**
 
+> **💡 Tip (Refreshing the Dashboard):** When launching a new scenario, Streamlit might start faster than the new log directories are created. If the "Select Run Directory" dropdown only shows older runs, simply **refresh your browser page** after a few seconds so it can detect the newly generated log folder.
+
+
 The dashboard is designed around three tabs:
 
 ### 5.1 Overview
