@@ -40,7 +40,7 @@ This guide assumes you are starting with a clean **Instant Veins VirtualBox VM**
 
 ### System Requirements
 * **RAM:** >= 16GB recommended (due to multiple Docker containers and OMNeT++ running simultaneously).
-* **CPU:** Multi-core processor.
+* **CPU:** Multi-core processor.(more CPU cores are recommended for smoother GUI execution and concurrent Docker/Veins workloads).
 * **Disk Space:** **80GB or more** (to accommodate Docker images, build artifacts, and simulation logs).
 > [!WARNING]
 > Instant Veins VirtualBox images are often created with a default system disk of about 20 GB, which is not sufficient for FedITS-Tool.
