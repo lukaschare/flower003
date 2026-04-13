@@ -10,7 +10,7 @@ Before running the setup script, expand the VM disk/partition to at least 80 GB.
 The default Instant Veins VirtualBox image typically provides only a 20 GB system disk, which is insufficient for FedITS-Tool.    
 Before installation, manually increase the virtual disk size to **80 GB** in VirtualBox.
 
-![[Pasted image 20260413155546.png]]
+![Overview tab screenshot](images/virtualbox_expand.png)
 ## Step 1: Install the partition growth utility
 
 ```bash
