@@ -33,6 +33,7 @@ This guide assumes you are starting with a clean **Instant Veins VirtualBox VM**
 > Instant Veins VirtualBox images are often created with a default system disk of about 20 GB, which is not sufficient for FedITS-Tool.
 > Please expand the VM disk/partition to at least 80 GB before running the setup script.
 > Otherwise, Docker images, build artifacts, datasets, and experiment logs may quickly exhaust the available space.
+> See [Disk Expansion Guide](images/EXPAND_INSTANT_VEINS_DISK.md).
 ---
 
 ## 3. Quick Installation
