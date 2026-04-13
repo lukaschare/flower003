@@ -17,7 +17,20 @@ This project provides a comprehensive co-simulation framework that integrates **
 
 ---
 
-## 2. Prerequisites
+## 2. Repository Structure
+
+* `setup_fedits_eng.sh` - Automated deployment scripts.
+* `docker/` - Docker Compose and Dockerfiles for orchestrator, Flower server, and Flower clients.
+* `fedits-tool/orchestrator/` - Control plane logic (`orch_core.py`, `orch_service.py`) that coordinates Veins and Flower.
+* `fedits-tool/fl/` - Flower server/client logic and the Streamlit dashboard.
+* `fedits_veins_rsu/` - Veins / OMNeT++ side implementation, including the `ControlServer`.
+* `scenarios/` - Scenario `.env` files for reproducible experiment launching.
+* `outputs/` - Structured experiment outputs generated during runs.
+* `logs/` - Launcher and runtime logs for each started scenario.   
+
+---
+
+## 3. Prerequisites
 This guide assumes you are starting with a clean **Instant Veins VirtualBox VM** (Ubuntu/Debian based). 
 
 👉 **Get Instant Veins 5.2-i1:**
@@ -36,7 +49,7 @@ This guide assumes you are starting with a clean **Instant Veins VirtualBox VM**
 > See [Disk Expansion Guide](images/EXPAND_INSTANT_VEINS_DISK.md).
 ---
 
-## 3. Quick Installation
+## 4. Quick Installation
 
 We provide a one-click setup script to fully automate the deployment process on an Instant Veins VM. It will install Docker, deploy the project directories, compile the necessary C++ modules, and install the Python dependencies.
 
@@ -58,7 +71,7 @@ _(Note: The script will ask for your `sudo` password to install system packages 
 ---
 
 
-## 4. Running the Simulation
+## 5. Running the Simulation
 
 The recommended way to launch FedITS is through a **scenario `.env` file**.
 This keeps the experiment configuration reproducible and allows the launcher to automatically propagate the main parameters (such as `NUM_VEH`, `M`, `ROUNDS`, `RSU_X`, `RSU_Y`, `RSU_R`, `MAP_SIZE`, and SUMO flow settings) to the Docker stack, OMNeT++ configuration, and SUMO route file in one place. 
@@ -134,7 +147,7 @@ The stop script shuts down Docker Compose and terminates the related host-side V
 
 ---
 
-## 5. Real-Time Dashboard 📊
+## 6. Real-Time Dashboard 📊
 
 When the dashboard is enabled, Streamlit becomes available at:
 
@@ -145,7 +158,7 @@ When the dashboard is enabled, Streamlit becomes available at:
 
 The dashboard is designed around three tabs:
 
-### 5.1 Overview
+### 6.1 Overview
 
 The **Overview** tab provides a compact summary of the current run, including:
 
@@ -158,7 +171,7 @@ The **Overview** tab provides a compact summary of the current run, including:
 
 ![Overview tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_01_01.png)
 ![Overview tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_01_02.png)
-### 5.2 Drop Analysis
+### 6.2 Drop Analysis
 
 The **Drop analysis** tab helps diagnose why selected clients fail to contribute updates.
 It groups dropped clients into three coarse categories:
@@ -172,26 +185,13 @@ It also provides per-round stacked statistics and raw reason mappings, which are
 
 ![Drop analysis tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_02.png)
 
-### 5.3 Events
+### 6.3 Events
 
 The **Events** tab displays the content of `events.jsonl`, which records round-level execution events emitted by the FL server.
 This tab is useful for inspecting the chronological orchestration flow, including client selection, reception, verdict, aggregation, and round completion.  
 
 
 ![Events tab screenshot](images/usecase02_FL_Orchestrator_Dashboard_03.png)
-
----
-
-## 6. Repository Structure
-
-* `setup_fedits_eng.sh` - Automated deployment scripts.
-* `docker/` - Docker Compose and Dockerfiles for orchestrator, Flower server, and Flower clients.
-* `fedits-tool/orchestrator/` - Control plane logic (`orch_core.py`, `orch_service.py`) that coordinates Veins and Flower.
-* `fedits-tool/fl/` - Flower server/client logic and the Streamlit dashboard.
-* `fedits_veins_rsu/` - Veins / OMNeT++ side implementation, including the `ControlServer`.
-* `scenarios/` - Scenario `.env` files for reproducible experiment launching.
-* `outputs/` - Structured experiment outputs generated during runs.
-* `logs/` - Launcher and runtime logs for each started scenario.   
 
 ---
 
